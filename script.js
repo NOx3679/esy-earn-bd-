@@ -5,21 +5,67 @@ if (tg) {
     tg.expand();
 }
 
-// Telegram User
-const user = tg?.initDataUnsafe?.user;
+const API_URL = "https://esy-earn-bd.onrender.com";
 
-const fullName = user
-    ? user.first_name + (user.last_name ? " " + user.last_name : "")
-    : "ESY EARN BD User";
+let user = null;
+let isAuthenticated = false;
 
-const username = user?.username
-    ? "@" + user.username
-    : "Open from Telegram Bot";
+// Verify Telegram user with backend
+async function authenticateTelegram() {
+    if (!tg || !tg.initData) {
+        console.warn("Open ESY EARN BD from Telegram.");
+        return;
+    }
 
-document.getElementById("userName").textContent = fullName;
-document.getElementById("userUsername").textContent = username;
-document.getElementById("profileName").textContent = fullName;
-document.getElementById("profileUsername").textContent = username;
+    try {
+        const response = await fetch(
+            `${API_URL}/api/auth/telegram`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    initData: tg.initData
+                })
+            }
+        );
+
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+            throw new Error("Telegram verification failed.");
+        }
+
+        user = result.user;
+        isAuthenticated = true;
+
+        updateUserProfile();
+
+    } catch (error) {
+        console.error("Authentication error:", error);
+        alert("Login verification failed. Please reopen the app from Telegram.");
+    }
+}
+
+// Update user information after verification
+function updateUserProfile() {
+    if (!user || !isAuthenticated) return;
+
+    const fullName = user.first_name || "ESY EARN BD User";
+
+    const username = user.username
+        ? "@" + user.username
+        : "Telegram User";
+
+    document.getElementById("userName").textContent = fullName;
+    document.getElementById("userUsername").textContent = username;
+    document.getElementById("profileName").textContent = fullName;
+    document.getElementById("profileUsername").textContent = username;
+
+    const referralCode = document.getElementById("referralCode");
+    referralCode.textContent = "ESY" + user.id;
+}
 
 // Page Navigation
 const pages = document.querySelectorAll(".page");
@@ -78,10 +124,7 @@ document.querySelectorAll(".backBtn").forEach(button => {
     button.onclick = showDashboard;
 });
 
-// Profile and History
-document.getElementById("profileNav").onclick =
-    () => showPage("profilePage");
-
+// Notifications
 document.getElementById("notificationBtn").onclick = () => {
     alert("No new notifications.");
 };
@@ -105,7 +148,7 @@ document.getElementById("depositForm").onsubmit = function(event) {
         "Method: " + method +
         "\nAmount: ৳" + amount +
         "\nTransaction ID: " + transactionId +
-        "\n\nAdmin verification will be connected later."
+        "\n\nDeposit backend is not connected yet."
     );
 
     this.reset();
@@ -129,34 +172,30 @@ document.getElementById("withdrawForm").onsubmit = function(event) {
         "Method: " + method +
         "\nAccount: " + account +
         "\nAmount: ৳" + amount +
-        "\n\nAdmin approval will be connected later."
+        "\n\nWithdrawal backend is not connected yet."
     );
 
     this.reset();
 };
 
-// Referral Code (Demo)
-const referralCode = document.getElementById("referralCode");
-
-referralCode.textContent = user?.id
-    ? "ESY" + user.id
-    : "ESY-DEMO";
-
 // Copy Referral
 document.getElementById("copyReferralBtn").onclick = async () => {
+    const code = document.getElementById("referralCode").textContent;
+
     try {
-        await navigator.clipboard.writeText(referralCode.textContent);
+        await navigator.clipboard.writeText(code);
         alert("Referral code copied!");
     } catch {
-        alert("Your referral code: " + referralCode.textContent);
+        alert("Your referral code: " + code);
     }
 };
 
 // Share Referral
 document.getElementById("shareReferralBtn").onclick = () => {
+    const code = document.getElementById("referralCode").textContent;
+
     const message =
-        "Join ESY EARN BD using my referral code: " +
-        referralCode.textContent;
+        "Join ESY EARN BD using my referral code: " + code;
 
     if (tg) {
         tg.openTelegramLink(
@@ -191,3 +230,6 @@ document.getElementById("shareReferralBtn").onclick = () => {
 
 // Initial Page
 showDashboard();
+
+// Start Telegram verification
+authenticateTelegram();
