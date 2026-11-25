@@ -1,13 +1,14 @@
 {
   "name": "esy-earn-bd-backend",
   "version": "1.0.0",
-  "description": "ESY EARN BD Backend API",
+  "description": "ESY EARN BD Telegram Backend",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.0.0",
-    "express": "^5.0.0"
+    "express": "^5.0.0",
+    "telegraf": "^4.16.3"
   }
 }
