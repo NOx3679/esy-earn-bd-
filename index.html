@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#071b16">
+    <title>ESY EARN BD</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+
+<header class="header">
+    <div class="brand">
+        <div class="brand-icon">E</div>
+        <div>
+            <h2>ESY <span>EARN BD</span></h2>
+            <small>Earn More. Grow More.</small>
+        </div>
+    </div>
+    <button id="notificationBtn" class="icon-btn">🔔</button>
+</header>
+
+<main class="container">
+
+    <!-- Dashboard -->
+    <section class="page" id="dashboardPage">
+
+        <div class="welcome">
+            <div>
+                <small>WELCOME BACK</small>
+                <h2 id="userName">ESY EARN BD User</h2>
+                <p id="userUsername">Your earning journey starts here.</p>
+            </div>
+            <div class="avatar">👤</div>
+        </div>
+
+        <!-- Main Banner -->
+        <div class="banner">
+            <img src="esy-banner.jpg" alt="ESY EARN BD Promotional Banner">
+        </div>
+
+        <!-- Notice Board -->
+        <div class="notice-board">
+            <div class="notice-heading">
+                <span>📢</span>
+                <strong>NOTICE BOARD</strong>
+                <span class="live-dot"></span>
+            </div>
+            <div class="notice-content" id="noticeText">
+                Welcome to ESY EARN BD! Stay updated with our latest announcements.
+            </div>
+        </div>
+
+        <!-- Balance -->
+        <div class="balance-card">
+            <div class="balance-top">
+                <span>মোট ব্যালেন্স</span>
+                <span>💳 MY WALLET</span>
+            </div>
+            <h1>৳ <span id="balance">0.00</span></h1>
+            <div class="balance-bottom">
+                <span>Available Balance</span>
+                <span>BDT Wallet</span>
+            </div>
+        </div>
+
+        <!-- Statistics -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <span>📈</span>
+                <small>Today's Earnings</small>
+                <h3>৳ <span id="todayEarnings">0.00</span></h3>
+            </div>
+            <div class="stat-card">
+                <span>💰</span>
+                <small>Total Earnings</small>
+                <h3>৳ <span id="totalEarnings">0.00</span></h3>
+            </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="section-title">
+            <h3>দ্রুত কার্যক্রম</h3>
+            <small>Quick Actions</small>
+        </div>
+
+        <div class="quick-actions">
+            <button id="depositBtn">＋<span>Deposit</span></button>
+            <button id="withdrawBtn">↗<span>Withdraw</span></button>
+            <button id="referBtn">♧<span>Refer</span></button>
+        </div>
+
+        <!-- Jobs -->
+        <div class="section-title">
+            <h3>আয়ের সুযোগ</h3>
+            <small>Explore Jobs</small>
+        </div>
+
+        <div class="job-grid">
+            <button class="job-card prime" id="primeJobBtn">
+                <span>💎</span>
+                <h3>Prime Job</h3>
+                <p>Premium earning tasks</p>
+                <small>Explore Now →</small>
+            </button>
+
+            <button class="job-card micro" id="microjobBtn">
+                <span>⚡</span>
+                <h3>Microjob</h3>
+                <p>Complete small tasks</p>
+                <small>Explore Now →</small>
+            </button>
+
+            <button class="job-card free" id="freeJobBtn">
+                <span>🎯</span>
+                <h3>Free Job</h3>
+                <p>Start earning for free</p>
+                <small>Explore Now →</small>
+            </button>
+        </div>
+
+        <div class="section-title">
+            <h3>পেমেন্ট মেথড</h3>
+            <small>Payment Methods</small>
+        </div>
+
+        <div class="payment-list">
+            <span>bKash</span>
+            <span>Nagad</span>
+            <span>Rocket</span>
+            <span>Binance</span>
+        </div>
+
+    </section>
+
+    <!-- Prime Job -->
+    <section class="page" id="primeJobPage">
+        <h2>প্রাইম কাজ</h2>
+        <p>Prime Job - Premium earning opportunities.</p>
+        <div class="job-list">
+            <div class="task-card">
+                <h3>💎 Daily Premium Task</h3>
+                <p>Complete a premium task.</p>
+                <strong>Reward: ৳50</strong>
+                <button id="primeTaskOneBtn">View Task</button>
+            </div>
+            <div class="task-card">
+                <h3>⭐ Special Task</h3>
+                <p>Complete a special task.</p>
+                <strong>Reward: ৳100</strong>
+                <button id="primeTaskTwoBtn">View Task</button>
+            </div>
+        </div>
+        <button class="backBtn">← Back to Dashboard</button>
+    </section>
+
+    <!-- Microjob -->
+    <section class="page" id="microjobPage">
+        <h2>ছোট কাজ</h2>
+        <p>Microjob - Complete small tasks and earn.</p>
+        <div class="task-card">
+            <h3>⚡ Social Media Task</h3>
+            <p>Like and follow a page.</p>
+            <strong>Reward: ৳10</strong>
+            <button id="microTaskOneBtn">View Task</button>
+        </div>
+        <div class="task-card">
+            <h3>🌐 Website Visit Task</h3>
+            <p>Visit a website and submit proof.</p>
+            <strong>Reward: ৳15</strong>
+            <button id="microTaskTwoBtn">View Task</button>
+        </div>
+        <button class="backBtn">← Back to Dashboard</button>
+    </section>
+
+    <!-- Free Job -->
+    <section class="page" id="freeJobPage">
+        <h2>ফ্রি কাজ</h2>
+        <p>Free Job - Start earning with simple tasks.</p>
+        <div class="task-card">
+            <h3>🎯 Simple Task One</h3>
+            <p>Complete a simple activity.</p>
+            <strong>Reward: ৳5</strong>
+            <button id="freeTaskOneBtn">View Task</button>
+        </div>
+        <div class="task-card">
+            <h3>🎯 Simple Task Two</h3>
+            <p>Follow the task instructions.</p>
+            <strong>Reward: ৳10</strong>
+            <button id="freeTaskTwoBtn">View Task</button>
+        </div>
+        <button class="backBtn">← Back to Dashboard</button>
+    </section>
+
+    <!-- Deposit -->
+    <section class="page" id="depositPage">
+        <h2>টাকা জমা</h2>
+        <p>Deposit money into your wallet.</p>
+        <form id="depositForm">
+            <label>Payment Method</label>
+            <select id="depositMethod" required>
+                <option value="">Select Method</option>
+                <option>Nagad</option>
+                <option>Rocket</option>
+                <option>Binance</option>
+            </select>
+            <label>Amount (৳)</label>
+            <input type="number" id="depositAmount" min="1" placeholder="Enter amount" required>
+            <label>Transaction ID</label>
+            <input type="text" id="depositTransactionId" placeholder="Enter transaction ID" required>
+            <button type="submit">Submit Deposit</button>
+        </form>
+        <button class="backBtn">← Back</button>
+    </section>
+
+    <!-- Withdraw -->
+    <section class="page" id="withdrawPage">
+        <h2>টাকা উত্তোলন</h2>
+        <p>Withdraw your available balance.</p>
+        <form id="withdrawForm">
+            <label>Payment Method</label>
+            <select id="withdrawMethod" required>
+                <option value="">Select Method</option>
+                <option>bKash</option>
+                <option>Nagad</option>
+                <option>Rocket</option>
+                <option>Binance</option>
+            </select>
+            <label>Account Number / Wallet</label>
+            <input type="text" id="withdrawAccount" placeholder="Enter account" required>
+            <label>Amount (৳)</label>
+            <input type="number" id="withdrawAmount" min="1" placeholder="Enter amount" required>
+            <button type="submit">Submit Withdrawal</button>
+        </form>
+        <button class="backBtn">← Back</button>
+    </section>
+
+    <!-- Referral -->
+    <section class="page" id="referPage">
+        <h2>রেফার করুন</h2>
+        <p>Refer & Earn - Invite friends and earn rewards.</p>
+        <div class="referral-card">
+            <h3>Your Referral Code</h3>
+            <div id="referralCode">ESY-DEMO</div>
+            <button id="copyReferralBtn">Copy Code</button>
+            <button id="shareReferralBtn">Share Referral</button>
+        </div>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <small>Total Invited</small>
+                <h3 id="totalInvited">0</h3>
+            </div>
+            <div class="stat-card">
+                <small>Successful Referrals</small>
+                <h3 id="successfulReferrals">0</h3>
+            </div>
+        </div>
+        <p>Referral Earnings: ৳<span id="referralEarnings">0.00</span></p>
+        <button class="backBtn">← Back</button>
+    </section>
+
+    <!-- History -->
+    <section class="page" id="historyPage">
+        <h2>লেনদেনের ইতিহাস</h2>
+        <p>Transaction History</p>
+        <div id="transactionList">
+            <p>No transactions yet.</p>
+        </div>
+        <button class="backBtn">← Back</button>
+    </section>
+
+    <!-- Profile -->
+    <section class="page" id="profilePage">
+        <h2>আমার প্রোফাইল</h2>
+        <div class="profile-card">
+            <div class="avatar">👤</div>
+            <h3 id="profileName">ESY EARN BD User</h3>
+            <p id="profileUsername">Telegram User</p>
+        </div>
+        <button class="backBtn">← Back to Dashboard</button>
+    </section>
+
+</main>
+
+<!-- Bottom Navigation -->
+<nav class="bottom-nav">
+    <button id="homeNav">⌂<small>Home</small></button>
+    <button id="jobsNav">▦<small>Jobs</small></button>
+    <button id="walletNav">৳<small>Wallet</small></button>
+    <button id="profileNav">♙<small>Profile</small></button>
+</nav>
+
+<script src="script.js"></script>
+</body>
+</html>
