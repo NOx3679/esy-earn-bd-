@@ -205,6 +205,96 @@ async function loadPaymentSettings() {
     }
 }
 
+function transactionTypeLabel(type) {
+    const labels = {
+        deposit: "Deposit / টাকা জমা",
+        withdraw: "Withdraw / টাকা উত্তোলন",
+        earning: "Task Earning / কাজের আয়",
+        referral: "Referral Reward / রেফারেল আয়"
+    };
+    return labels[type] || "Transaction";
+}
+
+function transactionStatusLabel(status) {
+    const labels = {
+        pending: "অপেক্ষমাণ",
+        approved: "অনুমোদিত",
+        rejected: "বাতিল",
+        completed: "সম্পন্ন"
+    };
+    return labels[status] || status || "অজানা";
+}
+
+async function loadTransactionHistory() {
+    const list = document.getElementById("transactionList");
+    if (!list) return;
+
+    if (!tg || !tg.initData) {
+        list.innerHTML = '<p class="payment-info-warning">Transaction History দেখতে Telegram থেকে অ্যাপটি খুলুন।</p>';
+        return;
+    }
+    if (!isAuthenticated) {
+        list.innerHTML = "<p>Login verification চলছে। একটু অপেক্ষা করুন...</p>";
+        return;
+    }
+
+    list.innerHTML = "<p>লেনদেনের তথ্য লোড হচ্ছে...</p>";
+
+    try {
+        const response = await fetch(`${API_URL}/api/transactions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ initData: tg.initData }),
+            cache: "no-store"
+        });
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+            throw new Error(result.message || "লেনদেনের তথ্য লোড করা যায়নি।");
+        }
+
+        const transactions = Array.isArray(result.transactions) ? result.transactions : [];
+        if (transactions.length === 0) {
+            list.innerHTML = '<div class="task-card"><p>এখনো কোনো লেনদেন পাওয়া যায়নি।</p></div>';
+            return;
+        }
+
+        list.innerHTML = transactions.map(item => {
+            const amount = formatMoney(item.amount);
+            const date = item.created_at
+                ? new Date(item.created_at).toLocaleString("bn-BD", {
+                    year: "numeric", month: "short", day: "numeric",
+                    hour: "2-digit", minute: "2-digit"
+                })
+                : "তারিখ পাওয়া যায়নি";
+            const method = item.payment_method
+                ? `<p>মেথড: ${escapeHTML(item.payment_method)}</p>`
+                : "";
+            const reference = item.reference_id
+                ? `<p>রেফারেন্স: ${escapeHTML(item.reference_id)}</p>`
+                : "";
+
+            return `
+                <div class="task-card transaction-card">
+                    <div class="transaction-heading">
+                        <strong>${escapeHTML(transactionTypeLabel(item.transaction_type))}</strong>
+                        <strong>৳${escapeHTML(amount)}</strong>
+                    </div>
+                    <p>স্ট্যাটাস: ${escapeHTML(transactionStatusLabel(item.status))}</p>
+                    ${method}
+                    ${reference}
+                    <small>${escapeHTML(date)}</small>
+                </div>
+            `;
+        }).join("");
+    } catch (error) {
+        console.error("Transaction history error:", error);
+        list.innerHTML = `<div class="task-card"><p class="payment-info-warning">${escapeHTML(error.message || "লেনদেনের তথ্য লোড করা যায়নি।")}</p><button type="button" id="retryHistoryBtn">আবার চেষ্টা করুন</button></div>`;
+        const retryButton = document.getElementById("retryHistoryBtn");
+        if (retryButton) retryButton.onclick = loadTransactionHistory;
+    }
+}
+
 // Page Navigation
 const pages = document.querySelectorAll(".page");
 
@@ -214,6 +304,7 @@ function showPage(pageId) {
     if (page) page.style.display = "block";
 
     if (pageId === "depositPage") loadPaymentSettings();
+    if (pageId === "historyPage") loadTransactionHistory();
     window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -228,6 +319,7 @@ document.getElementById("freeJobBtn").onclick = () => showPage("freeJobPage");
 document.getElementById("depositBtn").onclick = () => showPage("depositPage");
 document.getElementById("withdrawBtn").onclick = () => showPage("withdrawPage");
 document.getElementById("referBtn").onclick = () => showPage("referPage");
+document.getElementById("historyBtn").onclick = () => showPage("historyPage");
 
 // Bottom Navigation
 document.getElementById("homeNav").onclick = showDashboard;
