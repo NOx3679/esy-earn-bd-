@@ -1,1 +1,86 @@
-
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESY EARN BD | Admin Panel</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      font-family: Arial, sans-serif;
+      color: #eafff4;
+      background: linear-gradient(145deg,#061b15,#0b3528,#061b15);
+    }
+    .login {
+      width: 100%;
+      max-width: 390px;
+      padding: 32px 25px;
+      border: 1px solid #245a43;
+      border-radius: 20px;
+      background: #102b21;
+      box-shadow: 0 20px 60px #0008;
+    }
+    .logo {
+      width: 58px;
+      height: 58px;
+      display: grid;
+      place-items: center;
+      margin: 0 auto 18px;
+      border-radius: 17px;
+      background: #176b48;
+      font-size: 25px;
+      font-weight: bold;
+    }
+    h1 { text-align: center; font-size: 23px; margin: 0 0 8px; }
+    .sub { text-align: center; color: #9bbbab; font-size: 13px; margin-bottom: 30px; }
+    label { display: block; margin-bottom: 9px; font-size: 13px; }
+    input {
+      width: 100%;
+      padding: 14px;
+      color: white;
+      background: #091e17;
+      border: 1px solid #315c49;
+      border-radius: 10px;
+      outline: none;
+      font-size: 15px;
+    }
+    input:focus { border-color: #36c783; }
+    button {
+      width: 100%;
+      margin-top: 20px;
+      padding: 14px;
+      border: 0;
+      border-radius: 10px;
+      background: #15965d;
+      color: white;
+      font-size: 15px;
+      font-weight: bold;
+    }
+    .note { text-align: center; color: #779888; font-size: 11px; margin-top: 22px; }
+  </style>
+</head>
+<body>
+  <main class="login">
+    <div class="logo">E</div>
+    <h1>ESY EARN BD</h1>
+    <p class="sub">ADMIN CONTROL PANEL</p>
+    <form id="loginForm">
+      <label for="password">Admin Password</label>
+      <input id="password" type="password" placeholder="Enter your password" required>
+      <button type="submit">LOGIN</button>
+    </form>
+    <p class="note">SECURE ADMIN ACCESS</p>
+  </main>
+  <script>
+    document.getElementById("loginForm").addEventListener("submit", function(e) {
+      e.preventDefault();
+      alert("Login system will be connected securely to the backend in the next step.");
+    });
+  </script>
+</body>
+</html>
