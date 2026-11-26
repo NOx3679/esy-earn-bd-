@@ -7,6 +7,42 @@
     <title>ESY EARN BD</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        /* Deposit payment details; kept local so the existing site design remains unchanged. */
+        .payment-instructions-box {
+            margin: 12px 0 18px;
+            padding: 14px;
+            border: 1px solid rgba(42, 190, 130, .35);
+            border-radius: 12px;
+            background: rgba(15, 65, 48, .45);
+        }
+        .payment-instructions-box strong {
+            display: block;
+            margin-bottom: 8px;
+        }
+        .payment-receiver-number {
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            overflow-wrap: anywhere;
+            margin: 8px 0;
+        }
+        .copy-payment-number {
+            border: 0;
+            border-radius: 8px;
+            padding: 8px 12px;
+            cursor: pointer;
+        }
+        .payment-info-instructions,
+        .payment-info-muted,
+        .payment-info-warning {
+            margin: 8px 0 0;
+            line-height: 1.5;
+        }
+        .payment-info-warning {
+            color: #ffc078;
+        }
+    </style>
 </head>
 <body>
 
@@ -121,7 +157,6 @@
             <span>bKash</span>
             <span>Nagad</span>
             <span>Rocket</span>
-            <span>Binance</span>
         </div>
     </section>
 
@@ -189,11 +224,12 @@
         <form id="depositForm">
             <label for="depositMethod">Payment Method</label>
             <select id="depositMethod" required>
-                <option value="">Select Method</option>
-                <option value="Nagad">Nagad</option>
-                <option value="Rocket">Rocket</option>
-                <option value="Binance">Binance</option>
+                <option value="">পেমেন্ট মেথড লোড হচ্ছে...</option>
             </select>
+
+            <div id="paymentInstructions" class="payment-instructions-box" aria-live="polite">
+                <p class="payment-info-muted">পেমেন্ট মেথড নির্বাচন করলে নম্বর ও নির্দেশনা এখানে দেখাবে।</p>
+            </div>
 
             <label for="depositAmount">Amount (৳)</label>
             <input
@@ -246,7 +282,6 @@
                 <option>bKash</option>
                 <option>Nagad</option>
                 <option>Rocket</option>
-                <option>Binance</option>
             </select>
             <label>Account Number / Wallet</label>
             <input type="text" id="withdrawAccount" placeholder="Enter account" required>
