@@ -1,86 +1,152 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ESY EARN BD | Admin Panel</title>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 20px;
-      font-family: Arial, sans-serif;
-      color: #eafff4;
-      background: linear-gradient(145deg,#061b15,#0b3528,#061b15);
-    }
-    .login {
-      width: 100%;
-      max-width: 390px;
-      padding: 32px 25px;
-      border: 1px solid #245a43;
-      border-radius: 20px;
-      background: #102b21;
-      box-shadow: 0 20px 60px #0008;
-    }
-    .logo {
-      width: 58px;
-      height: 58px;
-      display: grid;
-      place-items: center;
-      margin: 0 auto 18px;
-      border-radius: 17px;
-      background: #176b48;
-      font-size: 25px;
-      font-weight: bold;
-    }
-    h1 { text-align: center; font-size: 23px; margin: 0 0 8px; }
-    .sub { text-align: center; color: #9bbbab; font-size: 13px; margin-bottom: 30px; }
-    label { display: block; margin-bottom: 9px; font-size: 13px; }
-    input {
-      width: 100%;
-      padding: 14px;
-      color: white;
-      background: #091e17;
-      border: 1px solid #315c49;
-      border-radius: 10px;
-      outline: none;
-      font-size: 15px;
-    }
-    input:focus { border-color: #36c783; }
-    button {
-      width: 100%;
-      margin-top: 20px;
-      padding: 14px;
-      border: 0;
-      border-radius: 10px;
-      background: #15965d;
-      color: white;
-      font-size: 15px;
-      font-weight: bold;
-    }
-    .note { text-align: center; color: #779888; font-size: 11px; margin-top: 22px; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#061b15">
+<title>ESY EARN BD | Admin</title>
+<style>
+:root{--bg:#061b15;--panel:#102b21;--panel2:#0b241b;--line:#245a43;--green:#15965d;--mint:#36c783;--text:#eafff4;--muted:#9bbbab;--red:#e05c5c}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#061b15,#0b3528,#061b15);color:var(--text);font-family:Arial,sans-serif;min-height:100vh}
+button,input{font:inherit}button{cursor:pointer;border:0;border-radius:10px;padding:12px 16px;background:var(--green);color:white;font-weight:700}
+button:disabled{opacity:.55;cursor:wait}.wrap{width:min(1120px,100%);margin:auto;padding:22px}
+.login-wrap{min-height:100vh;display:grid;place-items:center;padding:20px}.login{width:100%;max-width:390px;padding:32px 25px;border:1px solid var(--line);border-radius:20px;background:var(--panel);box-shadow:0 20px 60px #0008}
+.logo{width:58px;height:58px;display:grid;place-items:center;margin:0 auto 18px;border-radius:17px;background:#176b48;font-size:25px;font-weight:bold}
+h1{text-align:center;font-size:23px;margin:0 0 8px}.sub{text-align:center;color:var(--muted);font-size:13px;margin:0 0 28px}
+label{display:block;margin:12px 0 8px;font-size:13px}input{width:100%;padding:14px;color:white;background:#091e17;border:1px solid #315c49;border-radius:10px;outline:none}input:focus{border-color:var(--mint)}
+.login button{width:100%;margin-top:18px}.note{text-align:center;color:#779888;font-size:11px;margin-top:22px}.error{color:#ff9999;font-size:13px;min-height:18px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:24px}header h2{margin:0;font-size:21px}header small{color:var(--muted)}.top-actions{display:flex;gap:8px}
+h3{margin:0 0 14px}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.card,.section{background:linear-gradient(145deg,var(--panel),var(--panel2));border:1px solid var(--line);border-radius:16px;padding:18px}
+.stat small{color:var(--muted)}.stat strong{display:block;font-size:25px;margin-top:10px}.section{margin-top:18px;overflow:hidden}.section-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:650px}th,td{text-align:left;padding:12px 10px;border-bottom:1px solid #254536;font-size:13px}th{color:var(--muted);font-weight:600}.muted{color:var(--muted)}.actions{display:flex;gap:7px}.approve{background:#168957}.reject{background:#9f3434}.secondary{background:#244b3a}.empty{color:var(--muted);padding:18px 0}.status{font-size:12px;color:var(--mint)}
+@media(max-width:760px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.wrap{padding:14px}.card,.section{padding:14px}header h2{font-size:18px}}
+@media(max-width:390px){.grid{grid-template-columns:1fr 1fr}.stat strong{font-size:21px}}
+</style>
 </head>
 <body>
+<div id="loginView" class="login-wrap">
   <main class="login">
-    <div class="logo">E</div>
-    <h1>ESY EARN BD</h1>
-    <p class="sub">ADMIN CONTROL PANEL</p>
+    <div class="logo">E</div><h1>ESY EARN BD</h1><p class="sub">ADMIN CONTROL PANEL</p>
     <form id="loginForm">
-      <label for="password">Admin Password</label>
-      <input id="password" type="password" placeholder="Enter your password" required>
-      <button type="submit">LOGIN</button>
+      <label for="password">Master Password</label>
+      <input id="password" type="password" autocomplete="current-password" placeholder="Enter admin password" required>
+      <button id="loginBtn" type="submit">LOGIN</button>
+      <p id="loginError" class="error" role="alert"></p>
     </form>
     <p class="note">SECURE ADMIN ACCESS</p>
   </main>
-  <script>
-    document.getElementById("loginForm").addEventListener("submit", function(e) {
-      e.preventDefault();
-      alert("Login system will be connected securely to the backend in the next step.");
+</div>
+
+<div id="appView" class="wrap" hidden>
+  <header>
+    <div><h2>ESY EARN BD <span class="status">● ADMIN</span></h2><small>Platform control dashboard</small></div>
+    <div class="top-actions"><button class="secondary" id="refreshBtn">Refresh</button><button class="reject" id="logoutBtn">Logout</button></div>
+  </header>
+  <div class="grid">
+    <div class="card stat"><small>Total Users</small><strong id="totalUsers">—</strong></div>
+    <div class="card stat"><small>Total Wallet Balance</small><strong id="totalWallet">—</strong></div>
+    <div class="card stat"><small>Total Earnings</small><strong id="totalEarnings">—</strong></div>
+    <div class="card stat"><small>Pending Deposits</small><strong id="pendingCount">—</strong></div>
+  </div>
+  <section class="section">
+    <div class="section-head"><h3>Pending Deposit Requests</h3><span class="muted">Approve / Reject</span></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>User ID</th><th>Amount</th><th>Method</th><th>Sender Account</th><th>Reference</th><th>Action</th></tr></thead>
+      <tbody id="pendingRows"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody>
+    </table></div>
+  </section>
+  <section class="section">
+    <div class="section-head"><h3>Recent Deposits</h3></div>
+    <div class="table-wrap"><table><thead><tr><th>User ID</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead><tbody id="depositRows"></tbody></table></div>
+  </section>
+  <section class="section">
+    <div class="section-head"><h3>Recent Withdrawals</h3><span class="muted">Read-only for now</span></div>
+    <div class="table-wrap"><table><thead><tr><th>User ID</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead><tbody id="withdrawRows"></tbody></table></div>
+  </section>
+  <p id="appMessage" class="muted" role="status"></p>
+</div>
+
+<script>
+const API = "https://esy-earn-bd.onrender.com";
+const loginView = document.getElementById("loginView");
+const appView = document.getElementById("appView");
+const money = n => "৳" + Number(n || 0).toLocaleString("en-BD",{minimumFractionDigits:2,maximumFractionDigits:2});
+const dateText = value => value ? new Date(value).toLocaleString() : "—";
+let token = sessionStorage.getItem("esy_admin_token") || "";
+
+function showApp(loggedIn) {
+  loginView.hidden = loggedIn;
+  appView.hidden = !loggedIn;
+}
+async function api(path, options={}) {
+  const response = await fetch(API + path, {
+    ...options,
+    headers: {"Content-Type":"application/json", ...(token ? {Authorization:"Bearer "+token}:{}), ...(options.headers||{})}
+  });
+  const result = await response.json().catch(()=>({success:false,message:"Invalid server response"}));
+  if (response.status === 401) {
+    token = ""; sessionStorage.removeItem("esy_admin_token"); showApp(false);
+  }
+  if (!response.ok || !result.success) throw new Error(result.message || "Request failed");
+  return result;
+}
+document.getElementById("loginForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const btn = document.getElementById("loginBtn");
+  const error = document.getElementById("loginError");
+  btn.disabled = true; btn.textContent = "Checking...";
+  error.textContent = "";
+  try {
+    const result = await api("/api/admin/login", {method:"POST", body:JSON.stringify({password:document.getElementById("password").value})});
+    token = result.token; sessionStorage.setItem("esy_admin_token",token);
+    document.getElementById("password").value = "";
+    showApp(true); await loadDashboard();
+  } catch(err) { error.textContent = err.message; }
+  finally { btn.disabled=false; btn.textContent="LOGIN"; }
+});
+function rows(items, type) {
+  if (!items || !items.length) return `<tr><td colspan="${type==="pending"?6:4}" class="empty">No records found.</td></tr>`;
+  return items.map(x => type==="pending"
+    ? `<tr><td>${x.user_id ?? "—"}</td><td>${money(x.amount)}</td><td>${escapeHtml(x.payment_method||"—")}</td><td>${escapeHtml(x.account_number||"—")}</td><td>${escapeHtml(x.reference_id||"—")}</td><td><div class="actions"><button class="approve" data-id="${x.id}" data-action="approve">Approve</button><button class="reject" data-id="${x.id}" data-action="reject">Reject</button></div></td></tr>`
+    : `<tr><td>${x.user_id ?? "—"}</td><td>${money(x.amount)}</td><td>${escapeHtml(x.status||"—")}</td><td>${dateText(x.created_at)}</td></tr>`
+  ).join("");
+}
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+async function loadDashboard() {
+  const message = document.getElementById("appMessage");
+  message.textContent = "Loading dashboard...";
+  try {
+    const data = await api("/api/admin/dashboard");
+    document.getElementById("totalUsers").textContent = Number(data.stats.totalUsers||0).toLocaleString();
+    document.getElementById("totalWallet").textContent = money(data.stats.totalWallet);
+    document.getElementById("totalEarnings").textContent = money(data.stats.totalEarnings);
+    document.getElementById("pendingCount").textContent = data.stats.pendingDeposits;
+    document.getElementById("pendingRows").innerHTML = rows(data.pendingDeposits,"pending");
+    document.getElementById("depositRows").innerHTML = rows(data.recentDeposits,"history");
+    document.getElementById("withdrawRows").innerHTML = rows(data.recentWithdrawals,"history");
+    message.textContent = data.stats.walletsLoaded >= 10000 ? "Note: wallet totals are based on the first 10,000 wallet records." : "Dashboard updated.";
+  } catch(err) { message.textContent = err.message; }
+}
+document.getElementById("pendingRows").addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-id]");
+  if (!btn) return;
+  const action = btn.dataset.action;
+  if (!confirm(`Are you sure you want to ${action} this deposit?`)) return;
+  btn.disabled = true;
+  try {
+    await api(`/api/admin/deposits/${encodeURIComponent(btn.dataset.id)}/review`, {
+      method:"POST", body:JSON.stringify({action})
     });
-  </script>
+    await loadDashboard();
+  } catch(err) { alert(err.message); btn.disabled=false; }
+});
+document.getElementById("refreshBtn").onclick = loadDashboard;
+document.getElementById("logoutBtn").onclick = () => {
+  token=""; sessionStorage.removeItem("esy_admin_token"); showApp(false);
+};
+if (token) { showApp(true); loadDashboard(); } else showApp(false);
+</script>
 </body>
 </html>
