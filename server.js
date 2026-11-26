@@ -240,6 +240,59 @@ app.post("/api/deposit", async (req, res) => {
   }
 });
 
+// Withdraw request: wallet amount is reserved immediately; rejected requests are refunded by review_withdraw.
+app.post("/api/withdraw", async (req, res) => {
+  try {
+    if (!supabase) return res.status(503).json({ success: false, message: "Database is not configured." });
+    const user = verifyTelegramData(req.body?.initData);
+    if (!user) return res.status(401).json({ success: false, message: "Invalid or expired Telegram login." });
+
+    const amount = Number(req.body?.amount);
+    const paymentMethod = String(req.body?.payment_method || "").trim();
+    const accountNumber = String(req.body?.account_number || "").trim();
+
+    if (!Number.isFinite(amount) || amount < 1 || amount > 1000000 ||
+        Math.round(amount * 100) !== amount * 100) {
+      return res.status(400).json({ success: false, message: "Invalid withdrawal amount." });
+    }
+    if (!PAYMENT_METHODS.includes(paymentMethod)) {
+      return res.status(400).json({ success: false, message: "Choose bKash, Nagad or Rocket." });
+    }
+    if (accountNumber.length < 5 || accountNumber.length > 100) {
+      return res.status(400).json({ success: false, message: "Enter a valid receiving account number." });
+    }
+
+    const { data, error } = await supabase.rpc("create_withdraw_request", {
+      p_user_id: user.id,
+      p_amount: amount,
+      p_payment_method: paymentMethod,
+      p_account_number: accountNumber
+    });
+    if (error) {
+      const message = /insufficient wallet balance/i.test(error.message)
+        ? "Insufficient wallet balance."
+        : /invalid payment method/i.test(error.message)
+          ? "Invalid payment method."
+          : "Could not submit withdrawal request.";
+      return res.status(400).json({ success: false, message });
+    }
+
+    const { data: wallet, error: walletError } = await supabase.from("wallets")
+      .select("balance,total_earnings").eq("user_id", user.id).single();
+    if (walletError) throw walletError;
+
+    res.json({
+      success: true,
+      message: "Withdrawal request submitted for admin review.",
+      transaction: { id: data.transaction_id, amount, payment_method: paymentMethod, status: "pending" },
+      wallet: { balance: wallet.balance, total_earnings: wallet.total_earnings }
+    });
+  } catch (error) {
+    console.error("Withdraw API:", error.message);
+    res.status(500).json({ success: false, message: "Could not submit withdrawal request." });
+  }
+});
+
 // Admin password login. Password and signing key exist only in Render environment.
 app.post("/api/admin/login", (req, res) => {
   const ip = req.ip || req.socket.remoteAddress || "unknown";
@@ -268,18 +321,20 @@ app.get("/api/admin/dashboard", adminAuth, async (req, res) => {
   try {
     if (!supabase) return res.status(503).json({ success: false, message: "Database is not configured." });
 
-    const [users, wallets, pending, deposits, withdrawals] = await Promise.all([
+    const [users, wallets, pending, deposits, withdrawals, pendingWithdrawals] = await Promise.all([
       supabase.from("profiles").select("telegram_id", { count: "exact", head: true }),
       supabase.from("wallets").select("balance,total_earnings").limit(10000),
       supabase.from("transactions").select("id,user_id,amount,payment_method,account_number,reference_id,status,created_at")
         .eq("transaction_type", "deposit").eq("status", "pending").order("created_at", { ascending: false }).limit(100),
       supabase.from("transactions").select("id,user_id,amount,status,created_at")
         .eq("transaction_type", "deposit").order("created_at", { ascending: false }).limit(100),
-      supabase.from("transactions").select("id,user_id,amount,status,created_at")
-        .eq("transaction_type", "withdraw").order("created_at", { ascending: false }).limit(100)
+      supabase.from("transactions").select("id,user_id,amount,payment_method,account_number,status,created_at")
+        .eq("transaction_type", "withdraw").order("created_at", { ascending: false }).limit(100),
+      supabase.from("transactions").select("id,user_id,amount,payment_method,account_number,status,created_at")
+        .eq("transaction_type", "withdraw").eq("status", "pending").order("created_at", { ascending: false }).limit(100)
     ]);
 
-    for (const result of [users, wallets, pending, deposits, withdrawals]) {
+    for (const result of [users, wallets, pending, deposits, withdrawals, pendingWithdrawals]) {
       if (result.error) throw result.error;
     }
     const walletRows = wallets.data || [];
@@ -288,9 +343,10 @@ app.get("/api/admin/dashboard", adminAuth, async (req, res) => {
 
     res.json({ success: true, stats: {
       totalUsers: users.count || 0, walletsLoaded: walletRows.length,
-      totalWallet, totalEarnings, pendingDeposits: (pending.data || []).length
+      totalWallet, totalEarnings, pendingDeposits: (pending.data || []).length,
+      pendingWithdrawals: (pendingWithdrawals.data || []).length
     }, pendingDeposits: pending.data || [], recentDeposits: deposits.data || [],
-      recentWithdrawals: withdrawals.data || [] });
+      pendingWithdrawals: pendingWithdrawals.data || [], recentWithdrawals: withdrawals.data || [] });
   } catch (error) {
     console.error("Admin dashboard:", error.message);
     res.status(500).json({ success: false, message: "Could not load dashboard data." });
@@ -319,6 +375,33 @@ app.post("/api/admin/deposits/:id/review", adminAuth, async (req, res) => {
     res.json({ success: true, result: data });
   } catch (error) {
     console.error("Deposit review:", error.message);
+    res.status(500).json({ success: false, message: "Server error." });
+  }
+});
+
+// Admin review for withdrawals. Approve only after the money has actually been sent.
+app.post("/api/admin/withdrawals/:id/review", adminAuth, async (req, res) => {
+  try {
+    if (!supabase) return res.status(503).json({ success: false, message: "Database is not configured." });
+    const id = String(req.params.id || "");
+    const action = String(req.body?.action || "");
+    if (!/^[0-9a-f-]{36}$/i.test(id) || !["approve", "reject"].includes(action)) {
+      return res.status(400).json({ success: false, message: "Invalid request." });
+    }
+    if (!Number.isSafeInteger(ADMIN_TELEGRAM_ID) || !(await isAdmin(ADMIN_TELEGRAM_ID))) {
+      return res.status(403).json({ success: false, message: "Configured admin ID is not authorized." });
+    }
+
+    const { data, error } = await supabase.rpc("review_withdraw", {
+      p_transaction_id: id, p_admin_id: ADMIN_TELEGRAM_ID, p_action: action
+    });
+    if (error) {
+      const message = /already reviewed/i.test(error.message) ? "This withdrawal has already been reviewed." : "Could not review this withdrawal.";
+      return res.status(400).json({ success: false, message });
+    }
+    res.json({ success: true, result: data });
+  } catch (error) {
+    console.error("Withdrawal review:", error.message);
     res.status(500).json({ success: false, message: "Server error." });
   }
 });
