@@ -9,6 +9,7 @@ const API_URL = "https://esy-earn-bd.onrender.com";
 
 let user = null;
 let isAuthenticated = false;
+let availablePaymentMethods = [];
 
 // Format BDT amount
 function formatMoney(amount) {
@@ -26,12 +27,8 @@ async function authenticateTelegram() {
     try {
         const response = await fetch(`${API_URL}/api/auth/telegram`, {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                initData: tg.initData
-            })
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ initData: tg.initData })
         });
 
         const result = await response.json();
@@ -61,15 +58,12 @@ function updateUserProfile() {
         user.last_name
     ].filter(Boolean).join(" ") || "ESY EARN BD User";
 
-    const username = user.username
-        ? "@" + user.username
-        : "Telegram User";
+    const username = user.username ? "@" + user.username : "Telegram User";
 
     document.getElementById("userName").textContent = fullName;
     document.getElementById("userUsername").textContent = username;
     document.getElementById("profileName").textContent = fullName;
     document.getElementById("profileUsername").textContent = username;
-
     document.getElementById("referralCode").textContent = "ESY" + user.id;
 }
 
@@ -77,13 +71,150 @@ function updateUserProfile() {
 function updateWallet(wallet) {
     if (!wallet) return;
 
-    document.getElementById("balance").textContent =
-        formatMoney(wallet.balance);
-
-    document.getElementById("totalEarnings").textContent =
-        formatMoney(wallet.total_earnings);
-
+    document.getElementById("balance").textContent = formatMoney(wallet.balance);
+    document.getElementById("totalEarnings").textContent = formatMoney(wallet.total_earnings);
     document.getElementById("todayEarnings").textContent = "0.00";
+}
+
+// Payment settings from Admin Panel
+function getPaymentSettingsRows(result) {
+    if (Array.isArray(result)) return result;
+
+    const possibleLists = [
+        result?.methods,
+        result?.settings,
+        result?.payment_settings,
+        result?.paymentMethods,
+        result?.data
+    ];
+
+    for (const list of possibleLists) {
+        if (Array.isArray(list)) return list;
+        if (list && typeof list === "object") return Object.entries(list).map(([method, value]) => ({
+            method,
+            ...(value || {})
+        }));
+    }
+
+    return [];
+}
+
+function showPaymentInfo(method) {
+    const infoBox = document.getElementById("paymentInstructions");
+    const selected = availablePaymentMethods.find(item => item.method === method);
+
+    if (!infoBox) return;
+
+    if (!selected) {
+        infoBox.innerHTML = '<p class="payment-info-muted">এই মুহূর্তে কোনো পেমেন্ট মেথড নির্বাচন করা হয়নি।</p>';
+        return;
+    }
+
+    const accountNumber = String(selected.account_number || "").trim();
+    const instructions = String(selected.instructions || "").trim();
+
+    if (!accountNumber) {
+        infoBox.innerHTML = `
+            <strong>${escapeHTML(method)} নম্বর</strong>
+            <p class="payment-info-warning">অ্যাডমিন এখনো এই মেথডের পেমেন্ট নম্বর সেট করেননি। অনুগ্রহ করে পরে চেষ্টা করুন।</p>
+        `;
+        return;
+    }
+
+    infoBox.innerHTML = `
+        <strong>${escapeHTML(method)}-তে টাকা পাঠান</strong>
+        <div class="payment-receiver-number">${escapeHTML(accountNumber)}</div>
+        <button type="button" id="copyPaymentNumberBtn" class="copy-payment-number">নম্বর কপি করুন</button>
+        <p class="payment-info-instructions">${escapeHTML(instructions || "উপরের নম্বরে টাকা পাঠিয়ে নিচের ফর্ম পূরণ করুন।")}</p>
+    `;
+
+    const copyButton = document.getElementById("copyPaymentNumberBtn");
+    if (copyButton) {
+        copyButton.onclick = async () => {
+            try {
+                await navigator.clipboard.writeText(accountNumber);
+                copyButton.textContent = "কপি হয়েছে ✓";
+            } catch {
+                alert("Payment number: " + accountNumber);
+            }
+        };
+    }
+}
+
+function escapeHTML(value) {
+    return String(value).replace(/[&<>"']/g, char => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+    })[char]);
+}
+
+async function loadPaymentSettings() {
+    const methodSelect = document.getElementById("depositMethod");
+    const messageElement = document.getElementById("depositMessage");
+    if (!methodSelect) return;
+
+    methodSelect.disabled = true;
+    methodSelect.innerHTML = '<option value="">পেমেন্ট মেথড লোড হচ্ছে...</option>';
+
+    try {
+        const response = await fetch(`${API_URL}/api/payment-settings`, {
+            method: "GET",
+            cache: "no-store"
+        });
+        const result = await response.json();
+
+        if (!response.ok || result.success === false) {
+            throw new Error(result.message || "Payment settings could not be loaded.");
+        }
+
+        const rows = getPaymentSettingsRows(result);
+        const allowed = ["bKash", "Nagad", "Rocket"];
+
+        availablePaymentMethods = rows
+            .map(item => ({
+                method: String(item.method || item.name || ""),
+                account_number: item.account_number || "",
+                instructions: item.instructions || "",
+                enabled: item.enabled !== false
+            }))
+            .filter(item => allowed.includes(item.method) && item.enabled);
+
+        methodSelect.innerHTML = '<option value="">Select Method</option>';
+
+        availablePaymentMethods.forEach(item => {
+            const option = document.createElement("option");
+            option.value = item.method;
+            option.textContent = item.method;
+            methodSelect.appendChild(option);
+        });
+
+        if (availablePaymentMethods.length === 0) {
+            methodSelect.innerHTML = '<option value="">No payment method available</option>';
+            if (messageElement) {
+                messageElement.textContent = "বর্তমানে কোনো Deposit Method চালু নেই। পরে আবার চেষ্টা করুন।";
+            }
+        } else if (messageElement) {
+            messageElement.textContent = "";
+        }
+
+        showPaymentInfo(methodSelect.value);
+
+    } catch (error) {
+        console.error("Payment settings error:", error);
+        methodSelect.innerHTML = '<option value="">পেমেন্ট মেথড লোড হয়নি</option>';
+        if (messageElement) {
+            messageElement.textContent = "পেমেন্ট তথ্য লোড করা যায়নি। কিছুক্ষণ পর আবার চেষ্টা করুন।";
+        }
+        const infoBox = document.getElementById("paymentInstructions");
+        if (infoBox) {
+            infoBox.innerHTML = '<p class="payment-info-warning">সার্ভার থেকে পেমেন্ট তথ্য পাওয়া যায়নি। অনুগ্রহ করে পরে আবার চেষ্টা করুন।</p>';
+        }
+    } finally {
+        methodSelect.disabled = false;
+    }
 }
 
 // Page Navigation
@@ -95,9 +226,10 @@ function showPage(pageId) {
     });
 
     const page = document.getElementById(pageId);
+    if (page) page.style.display = "block";
 
-    if (page) {
-        page.style.display = "block";
+    if (pageId === "depositPage") {
+        loadPaymentSettings();
     }
 
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -108,35 +240,18 @@ function showDashboard() {
 }
 
 // Dashboard Menu
-document.getElementById("primeJobBtn").onclick =
-    () => showPage("primeJobPage");
-
-document.getElementById("microjobBtn").onclick =
-    () => showPage("microjobPage");
-
-document.getElementById("freeJobBtn").onclick =
-    () => showPage("freeJobPage");
-
-document.getElementById("depositBtn").onclick =
-    () => showPage("depositPage");
-
-document.getElementById("withdrawBtn").onclick =
-    () => showPage("withdrawPage");
-
-document.getElementById("referBtn").onclick =
-    () => showPage("referPage");
+document.getElementById("primeJobBtn").onclick = () => showPage("primeJobPage");
+document.getElementById("microjobBtn").onclick = () => showPage("microjobPage");
+document.getElementById("freeJobBtn").onclick = () => showPage("freeJobPage");
+document.getElementById("depositBtn").onclick = () => showPage("depositPage");
+document.getElementById("withdrawBtn").onclick = () => showPage("withdrawPage");
+document.getElementById("referBtn").onclick = () => showPage("referPage");
 
 // Bottom Navigation
 document.getElementById("homeNav").onclick = showDashboard;
-
-document.getElementById("jobsNav").onclick =
-    () => showPage("freeJobPage");
-
-document.getElementById("walletNav").onclick =
-    () => showPage("withdrawPage");
-
-document.getElementById("profileNav").onclick =
-    () => showPage("profilePage");
+document.getElementById("jobsNav").onclick = () => showPage("freeJobPage");
+document.getElementById("walletNav").onclick = () => showPage("withdrawPage");
+document.getElementById("profileNav").onclick = () => showPage("profilePage");
 
 // Back Buttons
 document.querySelectorAll(".backBtn").forEach(button => {
@@ -147,6 +262,11 @@ document.querySelectorAll(".backBtn").forEach(button => {
 document.getElementById("notificationBtn").onclick = () => {
     alert("No new notifications.");
 };
+
+// Update receiver information when method changes
+document.getElementById("depositMethod").addEventListener("change", event => {
+    showPaymentInfo(event.target.value);
+});
 
 // Deposit Form - Connected to Backend
 document.getElementById("depositForm").onsubmit = async function(event) {
@@ -167,10 +287,17 @@ document.getElementById("depositForm").onsubmit = async function(event) {
 
     const method = document.getElementById("depositMethod").value;
     const amount = Number(document.getElementById("depositAmount").value);
-    const accountNumber =
-        document.getElementById("depositAccountNumber").value.trim();
-    const transactionId =
-        document.getElementById("depositTransactionId").value.trim();
+    // This is the user's own account number used to send the payment,
+    // not the receiver number displayed above from Admin Payment Settings.
+    const accountNumber = document.getElementById("depositAccountNumber").value.trim();
+    const transactionId = document.getElementById("depositTransactionId").value.trim();
+
+    const selectedMethod = availablePaymentMethods.find(item => item.method === method);
+
+    if (!selectedMethod || !selectedMethod.account_number.trim()) {
+        messageElement.textContent = "এই পেমেন্ট মেথডের নম্বর এখনো সেট করা হয়নি অথবা মেথডটি বন্ধ আছে।";
+        return;
+    }
 
     if (
         !method ||
@@ -192,9 +319,7 @@ document.getElementById("depositForm").onsubmit = async function(event) {
     try {
         const response = await fetch(`${API_URL}/api/deposit`, {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 initData: tg.initData,
                 amount: amount,
@@ -214,6 +339,7 @@ document.getElementById("depositForm").onsubmit = async function(event) {
             "Deposit request submitted successfully! Status: Pending Approval.";
 
         this.reset();
+        showPaymentInfo("");
 
         if (tg.HapticFeedback) {
             tg.HapticFeedback.notificationOccurred("success");
@@ -229,7 +355,6 @@ document.getElementById("depositForm").onsubmit = async function(event) {
 
     } catch (error) {
         console.error("Deposit error:", error);
-
         messageElement.textContent = error.message;
 
         if (tg.HapticFeedback) {
@@ -281,14 +406,11 @@ document.getElementById("copyReferralBtn").onclick = async () => {
 // Share Referral
 document.getElementById("shareReferralBtn").onclick = () => {
     const code = document.getElementById("referralCode").textContent;
-
-    const message =
-        "Join ESY EARN BD using my referral code: " + code;
+    const message = "Join ESY EARN BD using my referral code: " + code;
 
     if (tg) {
         tg.openTelegramLink(
-            "https://t.me/share/url?url=" +
-            encodeURIComponent(message)
+            "https://t.me/share/url?url=" + encodeURIComponent(message)
         );
     } else {
         alert(message);
@@ -305,13 +427,9 @@ document.getElementById("shareReferralBtn").onclick = () => {
     "freeTaskTwoBtn"
 ].forEach(id => {
     const button = document.getElementById(id);
-
     if (button) {
         button.onclick = () => {
-            alert(
-                "Task details and submission system " +
-                "will be connected with the backend later."
-            );
+            alert("Task details and submission system will be connected with the backend later.");
         };
     }
 });
