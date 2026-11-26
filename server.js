@@ -17,12 +17,11 @@ const supabase =
       )
     : null;
 
-// Frontend connection
+// Frontend CORS
 app.use((req, res, next) => {
-  const origin = req.headers.origin;
   const allowedOrigin = "https://nox3679.github.io";
 
-  if (origin === allowedOrigin) {
+  if (req.headers.origin === allowedOrigin) {
     res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
   }
 
@@ -37,6 +36,7 @@ app.use((req, res, next) => {
 // Verify Telegram Mini App data
 function verifyTelegramData(initData) {
   if (!BOT_TOKEN || typeof initData !== "string") return null;
+  if (initData.length > 16000) return null;
 
   const params = new URLSearchParams(initData);
   const receivedHash = params.get("hash");
@@ -72,11 +72,12 @@ function verifyTelegramData(initData) {
   }
 
   const authDate = Number(params.get("auth_date"));
+  const now = Math.floor(Date.now() / 1000);
 
   if (
     !Number.isFinite(authDate) ||
-    authDate > Math.floor(Date.now() / 1000) + 60 ||
-    Math.floor(Date.now() / 1000) - authDate > 86400
+    authDate > now + 60 ||
+    now - authDate > 86400
   ) {
     return null;
   }
@@ -92,6 +93,7 @@ function verifyTelegramData(initData) {
   }
 }
 
+// Home
 app.get("/", (req, res) => {
   res.json({
     success: true,
@@ -99,6 +101,7 @@ app.get("/", (req, res) => {
   });
 });
 
+// Health check
 app.get("/api/health", (req, res) => {
   res.json({
     success: true,
@@ -107,27 +110,105 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// Telegram authentication
-app.post("/api/auth/telegram", (req, res) => {
-  const user = verifyTelegramData(req.body?.initData);
+// Telegram authentication + Profile + Wallet
+app.post("/api/auth/telegram", async (req, res) => {
+  try {
+    const user = verifyTelegramData(req.body?.initData);
 
-  if (!user) {
-    return res.status(401).json({
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or expired Telegram login."
+      });
+    }
+
+    if (!supabase) {
+      return res.status(503).json({
+        success: false,
+        message: "Database is not configured."
+      });
+    }
+
+    // Save or update Telegram profile
+    const { error: profileError } = await supabase
+      .from("profiles")
+      .upsert(
+        {
+          telegram_id: user.id,
+          username: user.username || null,
+          first_name: user.first_name || null,
+          last_name: user.last_name || null
+        },
+        { onConflict: "telegram_id" }
+      );
+
+    if (profileError) {
+      console.error("Profile error:", profileError.message);
+      return res.status(500).json({
+        success: false,
+        message: "Could not save user profile."
+      });
+    }
+
+    // Create wallet only if it does not already exist.
+    // Existing balance and total earnings remain unchanged.
+    const { error: walletCreateError } = await supabase
+      .from("wallets")
+      .upsert(
+        { user_id: user.id },
+        {
+          onConflict: "user_id",
+          ignoreDuplicates: true
+        }
+      );
+
+    if (walletCreateError) {
+      console.error("Wallet creation error:", walletCreateError.message);
+      return res.status(500).json({
+        success: false,
+        message: "Could not create user wallet."
+      });
+    }
+
+    // Read wallet
+    const { data: wallet, error: walletReadError } = await supabase
+      .from("wallets")
+      .select("balance, total_earnings")
+      .eq("user_id", user.id)
+      .single();
+
+    if (walletReadError) {
+      console.error("Wallet read error:", walletReadError.message);
+      return res.status(500).json({
+        success: false,
+        message: "Could not load user wallet."
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "Telegram user verified and saved.",
+      user: {
+        id: user.id,
+        first_name: user.first_name || null,
+        last_name: user.last_name || null,
+        username: user.username || null,
+        photo_url: user.photo_url || null
+      },
+      wallet: {
+        balance: wallet.balance,
+        total_earnings: wallet.total_earnings
+      }
+    });
+
+  } catch (error) {
+    console.error("Authentication error:", error.message);
+
+    return res.status(500).json({
       success: false,
-      message: "Invalid or expired Telegram login."
+      message: "Server error during authentication."
     });
   }
-
-  res.json({
-    success: true,
-    message: "Telegram user verified.",
-    user: {
-      id: user.id,
-      first_name: user.first_name,
-      username: user.username || null,
-      photo_url: user.photo_url || null
-    }
-  });
 });
 
 // Telegram Bot
@@ -158,13 +239,12 @@ if (BOT_TOKEN) {
     console.error("Telegram Bot error:", err.message);
   });
 
-  bot.launch().then(() => {
-    console.log("Telegram Bot started!");
-  }).catch((err) => {
-    console.error("Telegram Bot failed:", err.message);
-  });
+  bot.launch()
+    .then(() => console.log("Telegram Bot started!"))
+    .catch((err) => console.error("Telegram Bot failed:", err.message));
 }
 
+// Start server
 app.listen(PORT, () => {
   console.log(`ESY EARN BD server running on port ${PORT}`);
 });
