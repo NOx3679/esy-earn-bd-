@@ -1,7 +1,7 @@
 const express = require("express");
 const crypto = require("crypto");
 const { createClient } = require("@supabase/supabase-js");
-const { Telegraf } = require("telegraf");
+const { Telegraf, Markup } = require("telegraf");
 
 const app = express();
 app.use(express.json({ limit: "20kb" }));
@@ -17,7 +17,7 @@ const supabase =
       )
     : null;
 
-// Frontend CORS
+// CORS
 app.use((req, res, next) => {
   const allowedOrigin = "https://nox3679.github.io";
 
@@ -84,13 +84,30 @@ function verifyTelegramData(initData) {
 
   try {
     const user = JSON.parse(params.get("user") || "null");
-
     if (!user || !Number.isSafeInteger(user.id)) return null;
-
     return user;
   } catch {
     return null;
   }
+}
+
+// Check admin
+async function isAdmin(telegramId) {
+  if (!supabase) return false;
+
+  const { data, error } = await supabase
+    .from("admin_users")
+    .select("telegram_id")
+    .eq("telegram_id", telegramId)
+    .eq("role", "admin")
+    .maybeSingle();
+
+  if (error) {
+    console.error("Admin check error:", error.message);
+    return false;
+  }
+
+  return Boolean(data);
 }
 
 // Home
@@ -101,7 +118,7 @@ app.get("/", (req, res) => {
   });
 });
 
-// Health check
+// Health
 app.get("/api/health", (req, res) => {
   res.json({
     success: true,
@@ -110,7 +127,7 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// Telegram authentication + Profile + Wallet
+// Telegram authentication
 app.post("/api/auth/telegram", async (req, res) => {
   try {
     const user = verifyTelegramData(req.body?.initData);
@@ -129,7 +146,6 @@ app.post("/api/auth/telegram", async (req, res) => {
       });
     }
 
-    // Save or update Telegram profile
     const { error: profileError } = await supabase
       .from("profiles")
       .upsert(
@@ -150,7 +166,6 @@ app.post("/api/auth/telegram", async (req, res) => {
       });
     }
 
-    // Create wallet only if it does not already exist
     const { error: walletCreateError } = await supabase
       .from("wallets")
       .upsert(
@@ -162,31 +177,30 @@ app.post("/api/auth/telegram", async (req, res) => {
       );
 
     if (walletCreateError) {
-      console.error("Wallet creation error:", walletCreateError.message);
+      console.error("Wallet error:", walletCreateError.message);
       return res.status(500).json({
         success: false,
-        message: "Could not create user wallet."
+        message: "Could not create wallet."
       });
     }
 
-    // Read wallet
-    const { data: wallet, error: walletReadError } = await supabase
+    const { data: wallet, error: walletError } = await supabase
       .from("wallets")
       .select("balance, total_earnings")
       .eq("user_id", user.id)
       .single();
 
-    if (walletReadError) {
-      console.error("Wallet read error:", walletReadError.message);
+    if (walletError) {
+      console.error("Wallet read error:", walletError.message);
       return res.status(500).json({
         success: false,
-        message: "Could not load user wallet."
+        message: "Could not load wallet."
       });
     }
 
     return res.json({
       success: true,
-      message: "Telegram user verified and saved.",
+      message: "Telegram user verified.",
       user: {
         id: user.id,
         first_name: user.first_name || null,
@@ -202,10 +216,9 @@ app.post("/api/auth/telegram", async (req, res) => {
 
   } catch (error) {
     console.error("Authentication error:", error.message);
-
     return res.status(500).json({
       success: false,
-      message: "Server error during authentication."
+      message: "Server error."
     });
   }
 });
@@ -220,7 +233,6 @@ app.post("/api/deposit", async (req, res) => {
       });
     }
 
-    // Verify Telegram user
     const user = verifyTelegramData(req.body?.initData);
 
     if (!user) {
@@ -235,7 +247,6 @@ app.post("/api/deposit", async (req, res) => {
     const accountNumber = String(req.body?.account_number || "").trim();
     const referenceId = String(req.body?.reference_id || "").trim();
 
-    // Validate amount
     if (
       !Number.isFinite(amount) ||
       amount < 1 ||
@@ -248,7 +259,6 @@ app.post("/api/deposit", async (req, res) => {
       });
     }
 
-    // Allowed payment methods
     if (!["Nagad", "Rocket", "Binance"].includes(paymentMethod)) {
       return res.status(400).json({
         success: false,
@@ -268,7 +278,6 @@ app.post("/api/deposit", async (req, res) => {
       });
     }
 
-    // Save deposit as pending
     const { data, error } = await supabase
       .from("transactions")
       .insert({
@@ -292,7 +301,6 @@ app.post("/api/deposit", async (req, res) => {
       }
 
       console.error("Deposit error:", error.message);
-
       return res.status(500).json({
         success: false,
         message: "Could not submit deposit request."
@@ -307,7 +315,6 @@ app.post("/api/deposit", async (req, res) => {
 
   } catch (error) {
     console.error("Deposit API error:", error.message);
-
     return res.status(500).json({
       success: false,
       message: "Server error."
@@ -337,6 +344,149 @@ if (BOT_TOKEN) {
         }
       }
     );
+  });
+
+  // Admin pending deposits
+  bot.command("pending", async (ctx) => {
+    try {
+      if (!supabase) {
+        return ctx.reply("Database is not configured.");
+      }
+
+      const adminId = ctx.from.id;
+
+      if (!(await isAdmin(adminId))) {
+        return ctx.reply("⛔ You are not authorized.");
+      }
+
+      const { data, error } = await supabase
+        .from("transactions")
+        .select(
+          "id, user_id, amount, payment_method, account_number, reference_id, created_at"
+        )
+        .eq("transaction_type", "deposit")
+        .eq("status", "pending")
+        .order("created_at", { ascending: true })
+        .limit(10);
+
+      if (error) {
+        console.error("Pending deposits error:", error.message);
+        return ctx.reply("Could not load pending deposits.");
+      }
+
+      if (!data || data.length === 0) {
+        return ctx.reply("✅ No pending deposits found.");
+      }
+
+      await ctx.reply(`📥 Pending Deposits: ${data.length}`);
+
+      for (const deposit of data) {
+        const message =
+          `💰 NEW DEPOSIT REQUEST\n\n` +
+          `👤 User ID: ${deposit.user_id}\n` +
+          `💵 Amount: ৳${deposit.amount}\n` +
+          `🏦 Method: ${deposit.payment_method}\n` +
+          `📱 Account: ${deposit.account_number}\n` +
+          `🧾 Reference: ${deposit.reference_id}\n` +
+          `🕒 Date: ${deposit.created_at}\n` +
+          `🆔 Transaction: ${deposit.id}`;
+
+        await ctx.reply(
+          message,
+          Markup.inlineKeyboard([
+            [
+              Markup.button.callback(
+                "✅ Approve",
+                `dep_approve:${deposit.id}`
+              ),
+              Markup.button.callback(
+                "❌ Reject",
+                `dep_reject:${deposit.id}`
+              )
+            ]
+          ])
+        );
+      }
+
+    } catch (error) {
+      console.error("Pending command error:", error.message);
+      ctx.reply("Something went wrong.");
+    }
+  });
+
+  // Approve deposit
+  bot.action(/^dep_approve:([0-9a-f-]{36})$/i, async (ctx) => {
+    try {
+      const adminId = ctx.from.id;
+
+      if (!(await isAdmin(adminId))) {
+        return ctx.answerCbQuery("Unauthorized", { show_alert: true });
+      }
+
+      const transactionId = ctx.match[1];
+
+      const { data, error } = await supabase.rpc("review_deposit", {
+        p_transaction_id: transactionId,
+        p_admin_id: adminId,
+        p_action: "approve"
+      });
+
+      if (error) {
+        console.error("Approve error:", error.message);
+        return ctx.answerCbQuery(
+          "Failed: " + error.message,
+          { show_alert: true }
+        );
+      }
+
+      await ctx.answerCbQuery("Deposit approved!");
+
+      await ctx.editMessageText(
+        ctx.callbackQuery.message.text +
+        `\n\n✅ APPROVED\n💵 Added: ৳${data.amount}`
+      );
+
+    } catch (error) {
+      console.error("Approve action error:", error.message);
+      ctx.answerCbQuery("Something went wrong.", { show_alert: true });
+    }
+  });
+
+  // Reject deposit
+  bot.action(/^dep_reject:([0-9a-f-]{36})$/i, async (ctx) => {
+    try {
+      const adminId = ctx.from.id;
+
+      if (!(await isAdmin(adminId))) {
+        return ctx.answerCbQuery("Unauthorized", { show_alert: true });
+      }
+
+      const transactionId = ctx.match[1];
+
+      const { data, error } = await supabase.rpc("review_deposit", {
+        p_transaction_id: transactionId,
+        p_admin_id: adminId,
+        p_action: "reject"
+      });
+
+      if (error) {
+        console.error("Reject error:", error.message);
+        return ctx.answerCbQuery(
+          "Failed: " + error.message,
+          { show_alert: true }
+        );
+      }
+
+      await ctx.answerCbQuery("Deposit rejected!");
+
+      await ctx.editMessageText(
+        ctx.callbackQuery.message.text + "\n\n❌ REJECTED"
+      );
+
+    } catch (error) {
+      console.error("Reject action error:", error.message);
+      ctx.answerCbQuery("Something went wrong.", { show_alert: true });
+    }
   });
 
   bot.catch((err) => {
