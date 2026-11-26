@@ -24,25 +24,20 @@ async function authenticateTelegram() {
     }
 
     try {
-        const response = await fetch(
-            `${API_URL}/api/auth/telegram`,
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    initData: tg.initData
-                })
-            }
-        );
+        const response = await fetch(`${API_URL}/api/auth/telegram`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                initData: tg.initData
+            })
+        });
 
         const result = await response.json();
 
         if (!response.ok || !result.success) {
-            throw new Error(
-                result.message || "Telegram verification failed."
-            );
+            throw new Error(result.message || "Telegram verification failed.");
         }
 
         user = result.user;
@@ -53,9 +48,7 @@ async function authenticateTelegram() {
 
     } catch (error) {
         console.error("Authentication error:", error);
-        alert(
-            "Login verification failed. Please reopen the app from Telegram."
-        );
+        alert("Login verification failed. Please reopen the app from Telegram.");
     }
 }
 
@@ -77,8 +70,7 @@ function updateUserProfile() {
     document.getElementById("profileName").textContent = fullName;
     document.getElementById("profileUsername").textContent = username;
 
-    document.getElementById("referralCode").textContent =
-        "ESY" + user.id;
+    document.getElementById("referralCode").textContent = "ESY" + user.id;
 }
 
 // Update wallet from backend
@@ -91,9 +83,7 @@ function updateWallet(wallet) {
     document.getElementById("totalEarnings").textContent =
         formatMoney(wallet.total_earnings);
 
-    // Daily earnings will be connected separately.
-    document.getElementById("todayEarnings").textContent =
-        "0.00";
+    document.getElementById("todayEarnings").textContent = "0.00";
 }
 
 // Page Navigation
@@ -158,29 +148,98 @@ document.getElementById("notificationBtn").onclick = () => {
     alert("No new notifications.");
 };
 
-// Deposit Form (Demo only)
-document.getElementById("depositForm").onsubmit = function(event) {
+// Deposit Form - Connected to Backend
+document.getElementById("depositForm").onsubmit = async function(event) {
     event.preventDefault();
 
-    const method = document.getElementById("depositMethod").value;
-    const amount = Number(document.getElementById("depositAmount").value);
-    const transactionId =
-        document.getElementById("depositTransactionId").value.trim();
+    const messageElement = document.getElementById("depositMessage");
+    const submitButton = document.getElementById("depositSubmitBtn");
 
-    if (!method || amount <= 0 || !transactionId) {
-        alert("Please enter valid deposit details.");
+    if (!tg || !tg.initData) {
+        messageElement.textContent = "Please open the app from Telegram.";
         return;
     }
 
-    alert(
-        "Deposit request prepared!\n" +
-        "Method: " + method +
-        "\nAmount: ৳" + amount +
-        "\nTransaction ID: " + transactionId +
-        "\n\nDeposit backend is not connected yet."
-    );
+    if (!isAuthenticated || !user) {
+        messageElement.textContent = "Please wait. Login verification is in progress.";
+        return;
+    }
 
-    this.reset();
+    const method = document.getElementById("depositMethod").value;
+    const amount = Number(document.getElementById("depositAmount").value);
+    const accountNumber =
+        document.getElementById("depositAccountNumber").value.trim();
+    const transactionId =
+        document.getElementById("depositTransactionId").value.trim();
+
+    if (
+        !method ||
+        !Number.isFinite(amount) ||
+        amount < 1 ||
+        amount > 1000000 ||
+        Math.round(amount * 100) !== amount * 100 ||
+        accountNumber.length < 5 ||
+        transactionId.length < 4
+    ) {
+        messageElement.textContent = "Please enter valid deposit details.";
+        return;
+    }
+
+    submitButton.disabled = true;
+    submitButton.textContent = "Submitting...";
+    messageElement.textContent = "";
+
+    try {
+        const response = await fetch(`${API_URL}/api/deposit`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                initData: tg.initData,
+                amount: amount,
+                payment_method: method,
+                account_number: accountNumber,
+                reference_id: transactionId
+            })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+            throw new Error(result.message || "Deposit request failed.");
+        }
+
+        messageElement.textContent =
+            "Deposit request submitted successfully! Status: Pending Approval.";
+
+        this.reset();
+
+        if (tg.HapticFeedback) {
+            tg.HapticFeedback.notificationOccurred("success");
+        }
+
+        alert(
+            "Deposit request submitted successfully!\n\n" +
+            "Amount: ৳" + formatMoney(result.transaction.amount) +
+            "\nMethod: " + result.transaction.payment_method +
+            "\nStatus: Pending Approval\n\n" +
+            "Admin will review your payment."
+        );
+
+    } catch (error) {
+        console.error("Deposit error:", error);
+
+        messageElement.textContent = error.message;
+
+        if (tg.HapticFeedback) {
+            tg.HapticFeedback.notificationOccurred("error");
+        }
+
+    } finally {
+        submitButton.disabled = false;
+        submitButton.textContent = "Submit Deposit";
+    }
 };
 
 // Withdraw Form (Demo only)
