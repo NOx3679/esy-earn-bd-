@@ -293,6 +293,27 @@ app.post("/api/withdraw", async (req, res) => {
   }
 });
 
+// Transaction history: the Telegram signature determines the user; client-supplied IDs are never trusted.
+app.post("/api/transactions", async (req, res) => {
+  try {
+    if (!supabase) return res.status(503).json({ success: false, message: "Database is not configured." });
+    const user = verifyTelegramData(req.body?.initData);
+    if (!user) return res.status(401).json({ success: false, message: "Invalid or expired Telegram login." });
+
+    const { data, error } = await supabase.from("transactions")
+      .select("id,transaction_type,amount,payment_method,reference_id,status,created_at,reviewed_at")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    if (error) throw error;
+    res.json({ success: true, transactions: data || [] });
+  } catch (error) {
+    console.error("Transaction history:", error.message);
+    res.status(500).json({ success: false, message: "Could not load transaction history." });
+  }
+});
+
 // Admin password login. Password and signing key exist only in Render environment.
 app.post("/api/admin/login", (req, res) => {
   const ip = req.ip || req.socket.remoteAddress || "unknown";
@@ -389,7 +410,7 @@ app.post("/api/admin/withdrawals/:id/review", adminAuth, async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid request." });
     }
     if (!Number.isSafeInteger(ADMIN_TELEGRAM_ID) || !(await isAdmin(ADMIN_TELEGRAM_ID))) {
-      return res.status(403).json({ success: false, message: "Configured admin ID is not authorized." });
+      return res.status(403).json({ success: false, message: "Configured admin ID is not authorized in admin_users." });
     }
 
     const { data, error } = await supabase.rpc("review_withdraw", {
