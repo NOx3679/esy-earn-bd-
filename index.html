@@ -23,9 +23,7 @@
 
 <main class="container">
 
-    <!-- Dashboard -->
     <section class="page" id="dashboardPage">
-
         <div class="welcome">
             <div>
                 <small>WELCOME BACK</small>
@@ -35,12 +33,10 @@
             <div class="avatar">👤</div>
         </div>
 
-        <!-- Main Banner -->
         <div class="banner">
             <img src="esy-banner.jpg" alt="ESY EARN BD Promotional Banner">
         </div>
 
-        <!-- Notice Board -->
         <div class="notice-board">
             <div class="notice-heading">
                 <span>📢</span>
@@ -52,7 +48,6 @@
             </div>
         </div>
 
-        <!-- Balance -->
         <div class="balance-card">
             <div class="balance-top">
                 <span>মোট ব্যালেন্স</span>
@@ -65,7 +60,6 @@
             </div>
         </div>
 
-        <!-- Statistics -->
         <div class="stats-grid">
             <div class="stat-card">
                 <span>📈</span>
@@ -79,7 +73,6 @@
             </div>
         </div>
 
-        <!-- Quick Actions -->
         <div class="section-title">
             <h3>দ্রুত কার্যক্রম</h3>
             <small>Quick Actions</small>
@@ -91,7 +84,6 @@
             <button id="referBtn">♧<span>Refer</span></button>
         </div>
 
-        <!-- Jobs -->
         <div class="section-title">
             <h3>আয়ের সুযোগ</h3>
             <small>Explore Jobs</small>
@@ -131,10 +123,8 @@
             <span>Rocket</span>
             <span>Binance</span>
         </div>
-
     </section>
 
-    <!-- Prime Job -->
     <section class="page" id="primeJobPage">
         <h2>প্রাইম কাজ</h2>
         <p>Prime Job - Premium earning opportunities.</p>
@@ -155,7 +145,6 @@
         <button class="backBtn">← Back to Dashboard</button>
     </section>
 
-    <!-- Microjob -->
     <section class="page" id="microjobPage">
         <h2>ছোট কাজ</h2>
         <p>Microjob - Complete small tasks and earn.</p>
@@ -174,7 +163,6 @@
         <button class="backBtn">← Back to Dashboard</button>
     </section>
 
-    <!-- Free Job -->
     <section class="page" id="freeJobPage">
         <h2>ফ্রি কাজ</h2>
         <p>Free Job - Start earning with simple tasks.</p>
@@ -197,24 +185,57 @@
     <section class="page" id="depositPage">
         <h2>টাকা জমা</h2>
         <p>Deposit money into your wallet.</p>
+
         <form id="depositForm">
-            <label>Payment Method</label>
+            <label for="depositMethod">Payment Method</label>
             <select id="depositMethod" required>
                 <option value="">Select Method</option>
-                <option>Nagad</option>
-                <option>Rocket</option>
-                <option>Binance</option>
+                <option value="Nagad">Nagad</option>
+                <option value="Rocket">Rocket</option>
+                <option value="Binance">Binance</option>
             </select>
-            <label>Amount (৳)</label>
-            <input type="number" id="depositAmount" min="1" placeholder="Enter amount" required>
-            <label>Transaction ID</label>
-            <input type="text" id="depositTransactionId" placeholder="Enter transaction ID" required>
-            <button type="submit">Submit Deposit</button>
+
+            <label for="depositAmount">Amount (৳)</label>
+            <input
+                type="number"
+                id="depositAmount"
+                min="1"
+                max="1000000"
+                step="0.01"
+                placeholder="Enter amount"
+                required
+            >
+
+            <label for="depositAccountNumber">Your Payment Account Number</label>
+            <input
+                type="text"
+                id="depositAccountNumber"
+                minlength="5"
+                maxlength="100"
+                placeholder="যে Account থেকে টাকা পাঠিয়েছ"
+                required
+            >
+
+            <label for="depositTransactionId">Transaction ID</label>
+            <input
+                type="text"
+                id="depositTransactionId"
+                minlength="4"
+                maxlength="100"
+                placeholder="Enter transaction ID"
+                required
+            >
+
+            <button type="submit" id="depositSubmitBtn">
+                Submit Deposit
+            </button>
+
+            <p id="depositMessage" role="status" aria-live="polite"></p>
         </form>
+
         <button class="backBtn">← Back</button>
     </section>
 
-    <!-- Withdraw -->
     <section class="page" id="withdrawPage">
         <h2>টাকা উত্তোলন</h2>
         <p>Withdraw your available balance.</p>
@@ -236,7 +257,6 @@
         <button class="backBtn">← Back</button>
     </section>
 
-    <!-- Referral -->
     <section class="page" id="referPage">
         <h2>রেফার করুন</h2>
         <p>Refer & Earn - Invite friends and earn rewards.</p>
@@ -260,7 +280,6 @@
         <button class="backBtn">← Back</button>
     </section>
 
-    <!-- History -->
     <section class="page" id="historyPage">
         <h2>লেনদেনের ইতিহাস</h2>
         <p>Transaction History</p>
@@ -270,7 +289,6 @@
         <button class="backBtn">← Back</button>
     </section>
 
-    <!-- Profile -->
     <section class="page" id="profilePage">
         <h2>আমার প্রোফাইল</h2>
         <div class="profile-card">
@@ -283,7 +301,6 @@
 
 </main>
 
-<!-- Bottom Navigation -->
 <nav class="bottom-nav">
     <button id="homeNav">⌂<small>Home</small></button>
     <button id="jobsNav">▦<small>Jobs</small></button>
