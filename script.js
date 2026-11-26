@@ -10,7 +10,13 @@ const API_URL = "https://esy-earn-bd.onrender.com";
 let user = null;
 let isAuthenticated = false;
 
-// Verify Telegram user with backend
+// Format BDT amount
+function formatMoney(amount) {
+    const value = Number(amount);
+    return (Number.isFinite(value) ? value : 0).toFixed(2);
+}
+
+// Telegram authentication
 async function authenticateTelegram() {
     if (!tg || !tg.initData) {
         console.warn("Open ESY EARN BD from Telegram.");
@@ -34,25 +40,33 @@ async function authenticateTelegram() {
         const result = await response.json();
 
         if (!response.ok || !result.success) {
-            throw new Error("Telegram verification failed.");
+            throw new Error(
+                result.message || "Telegram verification failed."
+            );
         }
 
         user = result.user;
         isAuthenticated = true;
 
         updateUserProfile();
+        updateWallet(result.wallet);
 
     } catch (error) {
         console.error("Authentication error:", error);
-        alert("Login verification failed. Please reopen the app from Telegram.");
+        alert(
+            "Login verification failed. Please reopen the app from Telegram."
+        );
     }
 }
 
-// Update user information after verification
+// Update user profile
 function updateUserProfile() {
     if (!user || !isAuthenticated) return;
 
-    const fullName = user.first_name || "ESY EARN BD User";
+    const fullName = [
+        user.first_name,
+        user.last_name
+    ].filter(Boolean).join(" ") || "ESY EARN BD User";
 
     const username = user.username
         ? "@" + user.username
@@ -63,8 +77,23 @@ function updateUserProfile() {
     document.getElementById("profileName").textContent = fullName;
     document.getElementById("profileUsername").textContent = username;
 
-    const referralCode = document.getElementById("referralCode");
-    referralCode.textContent = "ESY" + user.id;
+    document.getElementById("referralCode").textContent =
+        "ESY" + user.id;
+}
+
+// Update wallet from backend
+function updateWallet(wallet) {
+    if (!wallet) return;
+
+    document.getElementById("balance").textContent =
+        formatMoney(wallet.balance);
+
+    document.getElementById("totalEarnings").textContent =
+        formatMoney(wallet.total_earnings);
+
+    // Daily earnings will be connected separately.
+    document.getElementById("todayEarnings").textContent =
+        "0.00";
 }
 
 // Page Navigation
@@ -231,5 +260,5 @@ document.getElementById("shareReferralBtn").onclick = () => {
 // Initial Page
 showDashboard();
 
-// Start Telegram verification
+// Start authentication
 authenticateTelegram();
