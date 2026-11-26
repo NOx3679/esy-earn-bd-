@@ -44,6 +44,16 @@
             line-height: 1.5;
             overflow-wrap: anywhere;
         }
+        .transaction-card { margin: 12px 0; }
+        .transaction-heading {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+        .transaction-card p { margin: 6px 0; overflow-wrap: anywhere; }
+        .transaction-card small { display: block; margin-top: 10px; opacity: .75; }
     </style>
 </head>
 <body>
@@ -120,6 +130,7 @@
             <button id="depositBtn">＋<span>Deposit</span></button>
             <button id="withdrawBtn">↗<span>Withdraw</span></button>
             <button id="referBtn">♧<span>Refer</span></button>
+            <button id="historyBtn">↻<span>History</span></button>
         </div>
 
         <div class="section-title">
@@ -308,7 +319,7 @@
     <section class="page" id="historyPage">
         <h2>লেনদেনের ইতিহাস</h2>
         <p>Transaction History</p>
-        <div id="transactionList"><p>No transactions yet.</p></div>
+        <div id="transactionList"><p>লেনদেনের তথ্য লোড হচ্ছে...</p></div>
         <button class="backBtn">← Back</button>
     </section>
 
@@ -331,6 +342,6 @@
     <button id="profileNav">♙<small>Profile</small></button>
 </nav>
 
-<script src="script.js?v=20261126"></script>
+<script src="script.js?v=20261127"></script>
 </body>
 </html>
