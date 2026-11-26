@@ -8,7 +8,6 @@
     <link rel="stylesheet" href="style.css">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        /* Deposit payment details; kept local so the existing site design remains unchanged. */
         .payment-instructions-box {
             margin: 12px 0 18px;
             padding: 14px;
@@ -39,8 +38,11 @@
             margin: 8px 0 0;
             line-height: 1.5;
         }
-        .payment-info-warning {
-            color: #ffc078;
+        .payment-info-warning { color: #ffc078; }
+        #depositMessage, #withdrawMessage {
+            margin-top: 12px;
+            line-height: 1.5;
+            overflow-wrap: anywhere;
         }
     </style>
 </head>
@@ -216,7 +218,6 @@
         <button class="backBtn">← Back to Dashboard</button>
     </section>
 
-    <!-- Deposit -->
     <section class="page" id="depositPage">
         <h2>টাকা জমা</h2>
         <p>Deposit money into your wallet.</p>
@@ -232,40 +233,15 @@
             </div>
 
             <label for="depositAmount">Amount (৳)</label>
-            <input
-                type="number"
-                id="depositAmount"
-                min="1"
-                max="1000000"
-                step="0.01"
-                placeholder="Enter amount"
-                required
-            >
+            <input type="number" id="depositAmount" min="1" max="1000000" step="0.01" placeholder="Enter amount" required>
 
             <label for="depositAccountNumber">Your Payment Account Number</label>
-            <input
-                type="text"
-                id="depositAccountNumber"
-                minlength="5"
-                maxlength="100"
-                placeholder="যে Account থেকে টাকা পাঠিয়েছ"
-                required
-            >
+            <input type="text" id="depositAccountNumber" minlength="5" maxlength="100" placeholder="যে Account থেকে টাকা পাঠিয়েছ" required>
 
             <label for="depositTransactionId">Transaction ID</label>
-            <input
-                type="text"
-                id="depositTransactionId"
-                minlength="4"
-                maxlength="100"
-                placeholder="Enter transaction ID"
-                required
-            >
+            <input type="text" id="depositTransactionId" minlength="4" maxlength="100" placeholder="Enter transaction ID" required>
 
-            <button type="submit" id="depositSubmitBtn">
-                Submit Deposit
-            </button>
-
+            <button type="submit" id="depositSubmitBtn">Submit Deposit</button>
             <p id="depositMessage" role="status" aria-live="polite"></p>
         </form>
 
@@ -275,20 +251,34 @@
     <section class="page" id="withdrawPage">
         <h2>টাকা উত্তোলন</h2>
         <p>Withdraw your available balance.</p>
+
+        <div class="payment-instructions-box">
+            <strong>Withdrawal Information</strong>
+            <p class="payment-info-muted">
+                সঠিক bKash, Nagad অথবা Rocket নম্বর দিন।
+                Request জমা হলে Admin যাচাই করবে।
+            </p>
+        </div>
+
         <form id="withdrawForm">
-            <label>Payment Method</label>
+            <label for="withdrawMethod">Payment Method</label>
             <select id="withdrawMethod" required>
                 <option value="">Select Method</option>
-                <option>bKash</option>
-                <option>Nagad</option>
-                <option>Rocket</option>
+                <option value="bKash">bKash</option>
+                <option value="Nagad">Nagad</option>
+                <option value="Rocket">Rocket</option>
             </select>
-            <label>Account Number / Wallet</label>
-            <input type="text" id="withdrawAccount" placeholder="Enter account" required>
-            <label>Amount (৳)</label>
-            <input type="number" id="withdrawAmount" min="1" placeholder="Enter amount" required>
-            <button type="submit">Submit Withdrawal</button>
+
+            <label for="withdrawAccount">Account Number</label>
+            <input type="text" id="withdrawAccount" minlength="5" maxlength="100" placeholder="Enter your payment number" required>
+
+            <label for="withdrawAmount">Amount (৳)</label>
+            <input type="number" id="withdrawAmount" min="1" max="1000000" step="0.01" placeholder="Enter amount" required>
+
+            <button type="submit" id="withdrawSubmitBtn">Submit Withdrawal</button>
+            <p id="withdrawMessage" role="status" aria-live="polite"></p>
         </form>
+
         <button class="backBtn">← Back</button>
     </section>
 
@@ -318,9 +308,7 @@
     <section class="page" id="historyPage">
         <h2>লেনদেনের ইতিহাস</h2>
         <p>Transaction History</p>
-        <div id="transactionList">
-            <p>No transactions yet.</p>
-        </div>
+        <div id="transactionList"><p>No transactions yet.</p></div>
         <button class="backBtn">← Back</button>
     </section>
 
