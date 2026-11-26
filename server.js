@@ -150,8 +150,7 @@ app.post("/api/auth/telegram", async (req, res) => {
       });
     }
 
-    // Create wallet only if it does not already exist.
-    // Existing balance and total earnings remain unchanged.
+    // Create wallet only if it does not already exist
     const { error: walletCreateError } = await supabase
       .from("wallets")
       .upsert(
@@ -207,6 +206,111 @@ app.post("/api/auth/telegram", async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error during authentication."
+    });
+  }
+});
+
+// Deposit Request API
+app.post("/api/deposit", async (req, res) => {
+  try {
+    if (!supabase) {
+      return res.status(503).json({
+        success: false,
+        message: "Database is not configured."
+      });
+    }
+
+    // Verify Telegram user
+    const user = verifyTelegramData(req.body?.initData);
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or expired Telegram login."
+      });
+    }
+
+    const amount = Number(req.body?.amount);
+    const paymentMethod = String(req.body?.payment_method || "").trim();
+    const accountNumber = String(req.body?.account_number || "").trim();
+    const referenceId = String(req.body?.reference_id || "").trim();
+
+    // Validate amount
+    if (
+      !Number.isFinite(amount) ||
+      amount < 1 ||
+      amount > 1000000 ||
+      Math.round(amount * 100) !== amount * 100
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid deposit amount."
+      });
+    }
+
+    // Allowed payment methods
+    if (!["Nagad", "Rocket", "Binance"].includes(paymentMethod)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid payment method."
+      });
+    }
+
+    if (
+      accountNumber.length < 5 ||
+      accountNumber.length > 100 ||
+      referenceId.length < 4 ||
+      referenceId.length > 100
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid payment details."
+      });
+    }
+
+    // Save deposit as pending
+    const { data, error } = await supabase
+      .from("transactions")
+      .insert({
+        user_id: user.id,
+        transaction_type: "deposit",
+        amount: amount.toFixed(2),
+        payment_method: paymentMethod,
+        account_number: accountNumber,
+        reference_id: referenceId,
+        status: "pending"
+      })
+      .select("id, amount, payment_method, status, created_at")
+      .single();
+
+    if (error) {
+      if (error.code === "23505") {
+        return res.status(409).json({
+          success: false,
+          message: "This transaction reference has already been used."
+        });
+      }
+
+      console.error("Deposit error:", error.message);
+
+      return res.status(500).json({
+        success: false,
+        message: "Could not submit deposit request."
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "Deposit request submitted for admin review.",
+      transaction: data
+    });
+
+  } catch (error) {
+    console.error("Deposit API error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error."
     });
   }
 });
