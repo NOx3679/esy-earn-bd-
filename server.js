@@ -12,6 +12,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const ADMIN_SESSION_SECRET = process.env.ADMIN_SESSION_SECRET;
 const ADMIN_TELEGRAM_ID = Number(process.env.ADMIN_TELEGRAM_ID || "8650837438");
 const FRONTEND_ORIGIN = "https://nox3679.github.io";
+const PAYMENT_METHODS = ["bKash", "Nagad", "Rocket"];
 
 const supabase =
   process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -98,6 +99,66 @@ app.get("/api/health", (req, res) => res.json({
   adminConfigured: Boolean(ADMIN_PASSWORD && ADMIN_SESSION_SECRET && ADMIN_SESSION_SECRET.length >= 32)
 }));
 
+// Public payment details for the Telegram Mini App. Only enabled methods are returned.
+app.get("/api/payment-settings", async (req, res) => {
+  try {
+    if (!supabase) return res.status(503).json({ success: false, message: "Database is not configured." });
+    const { data, error } = await supabase.from("payment_settings")
+      .select("method,account_number,instructions,enabled")
+      .eq("enabled", true).order("method");
+    if (error) throw error;
+    res.json({ success: true, methods: data || [] });
+  } catch (error) {
+    console.error("Public payment settings:", error.message);
+    res.status(500).json({ success: false, message: "Could not load payment settings." });
+  }
+});
+
+// Admin-only: read all payment settings, including disabled methods.
+app.get("/api/admin/payment-settings", adminAuth, async (req, res) => {
+  try {
+    if (!supabase) return res.status(503).json({ success: false, message: "Database is not configured." });
+    const { data, error } = await supabase.from("payment_settings")
+      .select("method,account_number,instructions,enabled");
+    if (error) throw error;
+    const byMethod = new Map((data || []).map(x => [x.method, x]));
+    const methods = PAYMENT_METHODS.map(method => byMethod.get(method) || {
+      method, account_number: "", instructions: "Send Money করুন", enabled: true
+    });
+    res.json({ success: true, methods });
+  } catch (error) {
+    console.error("Admin payment settings:", error.message);
+    res.status(500).json({ success: false, message: "Could not load payment settings." });
+  }
+});
+
+// Admin-only: update one payment method.
+app.post("/api/admin/payment-settings", adminAuth, async (req, res) => {
+  try {
+    if (!supabase) return res.status(503).json({ success: false, message: "Database is not configured." });
+    if (!Number.isSafeInteger(ADMIN_TELEGRAM_ID) || !(await isAdmin(ADMIN_TELEGRAM_ID))) {
+      return res.status(403).json({ success: false, message: "Configured admin ID is not authorized." });
+    }
+    const method = String(req.body?.method || "");
+    const account_number = String(req.body?.account_number || "").trim();
+    const instructions = String(req.body?.instructions || "").trim();
+    const enabled = req.body?.enabled;
+    if (!PAYMENT_METHODS.includes(method) ||
+        account_number.length > 30 || instructions.length > 500 ||
+        typeof enabled !== "boolean") {
+      return res.status(400).json({ success: false, message: "Invalid payment settings." });
+    }
+    const { data, error } = await supabase.from("payment_settings").upsert({
+      method, account_number, instructions, enabled, updated_at: new Date().toISOString()
+    }, { onConflict: "method" }).select("method,account_number,instructions,enabled").single();
+    if (error) throw error;
+    res.json({ success: true, method: data });
+  } catch (error) {
+    console.error("Save payment settings:", error.message);
+    res.status(500).json({ success: false, message: "Could not save payment settings." });
+  }
+});
+
 // Telegram Mini App authentication
 app.post("/api/auth/telegram", async (req, res) => {
   try {
@@ -147,12 +208,19 @@ app.post("/api/deposit", async (req, res) => {
         Math.round(amount * 100) !== amount * 100) {
       return res.status(400).json({ success: false, message: "Invalid deposit amount." });
     }
-    if (!["bKash", "Nagad", "Rocket"].includes(paymentMethod)) {
+    if (!PAYMENT_METHODS.includes(paymentMethod)) {
       return res.status(400).json({ success: false, message: "Invalid payment method." });
     }
     if (accountNumber.length < 5 || accountNumber.length > 100 ||
         referenceId.length < 4 || referenceId.length > 100) {
       return res.status(400).json({ success: false, message: "Invalid payment details." });
+    }
+
+    const { data: setting, error: settingError } = await supabase.from("payment_settings")
+      .select("enabled").eq("method", paymentMethod).maybeSingle();
+    if (settingError) throw settingError;
+    if (!setting || !setting.enabled) {
+      return res.status(400).json({ success: false, message: "This payment method is currently unavailable." });
     }
 
     const { data, error } = await supabase.from("transactions").insert({
