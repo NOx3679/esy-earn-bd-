@@ -132,17 +132,6 @@ app.get("/api/admin/payment-settings", adminAuth, async (req, res) => {
     console.error("Admin payment settings:", error.message);
     res.status(500).json({ success: false, message: "Could not load payment settings." });
   }
-});.select("method,account_number,instructions,enabled");
-    if (error) throw error;
-    const byMethod = new Map((data || []).map(x => [x.method, x]));
-    const methods = PAYMENT_METHODS.map(method => byMethod.get(method) || {
-      method, account_number: "", instructions: "Send Money করুন", enabled: true
-    });
-    res.json({ success: true, methods });
-  } catch (error) {
-    console.error("Admin payment settings:", error.message);
-    res.status(500).json({ success: false, message: "Could not load payment settings." });
-  }
 });
 
 // Admin-only: update one payment method.
@@ -235,7 +224,8 @@ app.post("/api/admin/referral-settings", adminAuth, async (req, res) => {
 
 // Telegram Mini App authentication
 app.post("/api/auth/telegram", async (req, res) => {
-  try {const user = verifyTelegramData(req.body?.initData);
+  try {
+    const user = verifyTelegramData(req.body?.initData);
     if (!user) return res.status(401).json({ success: false, message: "Invalid or expired Telegram login." });
     if (!supabase) return res.status(503).json({ success: false, message: "Database is not configured." });
 
@@ -341,7 +331,8 @@ app.post("/api/withdraw", async (req, res) => {
     const accountNumber = String(req.body?.account_number || "").trim();
 
     if (!Number.isFinite(amount) || amount < 1 || amount > 1000000 ||
-        Math.round(amount * 100) !== amount * 100) {return res.status(400).json({ success: false, message: "Invalid withdrawal amount." });
+        Math.round(amount * 100) !== amount * 100) {
+      return res.status(400).json({ success: false, message: "Invalid withdrawal amount." });
     }
     if (!PAYMENT_METHODS.includes(paymentMethod)) {
       return res.status(400).json({ success: false, message: "Choose bKash, Nagad or Rocket." });
@@ -378,27 +369,6 @@ app.post("/api/withdraw", async (req, res) => {
   } catch (error) {
     console.error("Withdraw API:", error.message);
     res.status(500).json({ success: false, message: "Could not submit withdrawal request." });
-  }
-});
-
-// Transaction history: the Telegram signature determines the user; client-supplied IDs are never trusted.
-app.post("/api/transactions", async (req, res) => {
-  try {
-    if (!supabase) return res.status(503).json({ success: false, message: "Database is not configured." });
-    const user = verifyTelegramData(req.body?.initData);
-    if (!user) return res.status(401).json({ success: false, message: "Invalid or expired Telegram login." });
-
-    const { data, error } = await supabase.from("transactions")
-      .select("id,transaction_type,amount,payment_method,reference_id,status,created_at,reviewed_at")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(100);
-
-    if (error) throw error;
-    res.json({ success: true, transactions: data || [] });
-  } catch (error) {
-    console.error("Transaction history:", error.message);
-    res.status(500).json({ success: false, message: "Could not load transaction history." });
   }
 });
 
@@ -450,7 +420,8 @@ app.get("/api/admin/dashboard", adminAuth, async (req, res) => {
     const totalWallet = walletRows.reduce((sum, row) => sum + Number(row.balance || 0), 0);
     const totalEarnings = walletRows.reduce((sum, row) => sum + Number(row.total_earnings || 0), 0);
 
-    res.json({ success: true, stats: {totalUsers: users.count || 0, walletsLoaded: walletRows.length,
+    res.json({ success: true, stats: {
+      totalUsers: users.count || 0, walletsLoaded: walletRows.length,
       totalWallet, totalEarnings, pendingDeposits: (pending.data || []).length,
       pendingWithdrawals: (pendingWithdrawals.data || []).length
     }, pendingDeposits: pending.data || [], recentDeposits: deposits.data || [],
@@ -497,7 +468,7 @@ app.post("/api/admin/withdrawals/:id/review", adminAuth, async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid request." });
     }
     if (!Number.isSafeInteger(ADMIN_TELEGRAM_ID) || !(await isAdmin(ADMIN_TELEGRAM_ID))) {
-      return res.status(403).json({ success: false, message: "Configured admin ID is not authorized in admin_users." });
+      return res.status(403).json({ success: false, message: "Configured admin ID is not authorized." });
     }
 
     const { data, error } = await supabase.rpc("review_withdraw", {
@@ -557,15 +528,8 @@ if (BOT_TOKEN) {
       if (!data?.length) return ctx.reply("✅ No pending deposits found.");
       await ctx.reply(`📥 Pending Deposits: ${data.length}`);
       for (const d of data) {
-        await ctx.reply(`💰 NEW DEPOSIT REQUEST
-
-👤 User ID: ${d.user_id}
-💵 Amount: ৳${d.amount}
-🏦 Method: ${d.payment_method}
-📱 Account: ${d.account_number}
-🧾 Reference: ${d.reference_id}
-🕒 Date: ${d.created_at}
-🆔 Transaction: ${d.id}`,
+        await ctx.reply(
+          `💰 NEW DEPOSIT REQUEST\n\n👤 User ID: ${d.user_id}\n💵 Amount: ৳${d.amount}\n🏦 Method: ${d.payment_method}\n📱 Account: ${d.account_number}\n🧾 Reference: ${d.reference_id}\n🕒 Date: ${d.created_at}\n🆔 Transaction: ${d.id}`,
           Markup.inlineKeyboard([[Markup.button.callback("✅ Approve", `dep_approve:${d.id}`), Markup.button.callback("❌ Reject", `dep_reject:${d.id}`)]])
         );
       }
@@ -583,12 +547,7 @@ if (BOT_TOKEN) {
         if (error) return ctx.answerCbQuery("Failed: " + error.message, { show_alert: true });
         await ctx.answerCbQuery(action === "approve" ? "Deposit approved!" : "Deposit rejected!");
         await ctx.editMessageText(ctx.callbackQuery.message.text +
-          (action === "approve" ? `
-
-✅ APPROVED
-💵 Added: ৳${data.amount}` : "
-
-❌ REJECTED"));
+          (action === "approve" ? `\n\n✅ APPROVED\n💵 Added: ৳${data.amount}` : "\n\n❌ REJECTED"));
       } catch (error) {
         console.error("Deposit action:", error.message);
         ctx.answerCbQuery("Something went wrong.", { show_alert: true });
