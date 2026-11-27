@@ -1,564 +1,1067 @@
-const express = require("express");
-const crypto = require("crypto");
-const { createClient } = require("@supabase/supabase-js");
-const { Telegraf, Markup } = require("telegraf");
+const tg = window.Telegram?.WebApp;
 
-const app = express();
-app.use(express.json({ limit: "20kb" }));
-
-const PORT = process.env.PORT || 3000;
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
-const ADMIN_SESSION_SECRET = process.env.ADMIN_SESSION_SECRET;
-const ADMIN_TELEGRAM_ID = Number(process.env.ADMIN_TELEGRAM_ID || "8650837438");
-const FRONTEND_ORIGIN = "https://nox3679.github.io";
-const PAYMENT_METHODS = ["bKash", "Nagad", "Rocket"];
-const TELEGRAM_BOT_USERNAME = "EsyEarnBD_bot";
-const MINI_APP_URL = "https://nox3679.github.io/esy-earn-bd-/";
-
-const supabase =
-  process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
-    ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
-    : null;
-
-app.use((req, res, next) => {
-  if (req.headers.origin === FRONTEND_ORIGIN) {
-    res.setHeader("Access-Control-Allow-Origin", FRONTEND_ORIGIN);
-  }
-  res.setHeader("Vary", "Origin");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  if (req.method === "OPTIONS") return res.sendStatus(204);
-  next();
-});
-
-function verifyTelegramData(initData) {
-  if (!BOT_TOKEN || typeof initData !== "string" || initData.length > 16000) return null;
-  const params = new URLSearchParams(initData);
-  const receivedHash = params.get("hash");
-  if (!receivedHash || !/^[a-f0-9]{64}$/i.test(receivedHash)) return null;
-  params.delete("hash");
-  const dataCheckString = [...params.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${key}=${value}`).join("\n");
-  const secretKey = crypto.createHmac("sha256", "WebAppData").update(BOT_TOKEN).digest();
-  const calculatedHash = crypto.createHmac("sha256", secretKey).update(dataCheckString).digest();
-  const receivedBuffer = Buffer.from(receivedHash, "hex");
-  if (receivedBuffer.length !== calculatedHash.length ||
-      !crypto.timingSafeEqual(receivedBuffer, calculatedHash)) return null;
-  const authDate = Number(params.get("auth_date"));
-  const now = Math.floor(Date.now() / 1000);
-  if (!Number.isFinite(authDate) || authDate > now + 60 || now - authDate > 86400) return null;
-  try {
-    const user = JSON.parse(params.get("user") || "null");
-    return user && Number.isSafeInteger(user.id) ? user : null;
-  } catch { return null; }
+if (tg) {
+    tg.ready();
+    tg.expand();
 }
 
-async function isAdmin(telegramId) {
-  if (!supabase) return false;
-  const { data, error } = await supabase.from("admin_users")
-    .select("telegram_id").eq("telegram_id", telegramId).eq("role", "admin").maybeSingle();
-  if (error) console.error("Admin check:", error.message);
-  return Boolean(data);
+const API_URL = "https://esy-earn-bd.onrender.com";
+
+let user = null;
+let isAuthenticated = false;
+let availablePaymentMethods = [];
+let referralLink = "";
+let referralCode = "";
+
+function formatMoney(amount) {
+    const value = Number(amount);
+    return (Number.isFinite(value) ? value : 0).toFixed(2);
 }
 
-function safeEqual(a, b) {
-  const aa = Buffer.from(String(a));
-  const bb = Buffer.from(String(b));
-  return aa.length === bb.length && crypto.timingSafeEqual(aa, bb);
+function setMessage(element, message, isError = false) {
+    if (!element) return;
+    element.textContent = message;
+    element.style.color = isError ? "#ff8b8b" : "";
 }
 
-function signSession(payload) {
-  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
-  const sig = crypto.createHmac("sha256", ADMIN_SESSION_SECRET).update(body).digest("base64url");
-  return `${body}.${sig}`;
+function escapeHTML(value) {
+    return String(value).replace(/[&<>"']/g, char => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+    })[char]);
 }
 
-function verifySession(token) {
-  if (!ADMIN_SESSION_SECRET || typeof token !== "string") return false;
-  const parts = token.split(".");
-  if (parts.length !== 2) return false;
-  const expected = crypto.createHmac("sha256", ADMIN_SESSION_SECRET)
-    .update(parts[0]).digest("base64url");
-  if (!safeEqual(parts[1], expected)) return false;
-  try {
-    const payload = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8"));
-    return payload.admin === true && Number(payload.exp) > Math.floor(Date.now() / 1000);
-  } catch { return false; }
-}
+// ========================================
+// TELEGRAM AUTHENTICATION
+// ========================================
 
-const loginAttempts = new Map();
-function adminAuth(req, res, next) {
-  const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
-  if (!verifySession(token)) return res.status(401).json({ success: false, message: "Session expired. Please login again." });
-  next();
-}
-
-app.get("/", (req, res) => res.json({ success: true, message: "ESY EARN BD Backend is running!" }));
-app.get("/api/health", (req, res) => res.json({
-  success: true, databaseConfigured: Boolean(supabase), telegramConfigured: Boolean(BOT_TOKEN),
-  adminConfigured: Boolean(ADMIN_PASSWORD && ADMIN_SESSION_SECRET && ADMIN_SESSION_SECRET.length >= 32)
-}));
-
-// Public payment details for the Telegram Mini App. Only enabled methods are returned.
-app.get("/api/payment-settings", async (req, res) => {
-  try {
-    if (!supabase) return res.status(503).json({ success: false, message: "Database is not configured." });
-    const { data, error } = await supabase.from("payment_settings")
-      .select("method,account_number,instructions,enabled")
-      .eq("enabled", true).order("method");
-    if (error) throw error;
-    res.json({ success: true, methods: data || [] });
-  } catch (error) {
-    console.error("Public payment settings:", error.message);
-    res.status(500).json({ success: false, message: "Could not load payment settings." });
-  }
-});
-
-// Admin-only: read all payment settings, including disabled methods.
-app.get("/api/admin/payment-settings", adminAuth, async (req, res) => {
-  try {
-    if (!supabase) return res.status(503).json({ success: false, message: "Database is not configured." });
-    const { data, error } = await supabase.from("payment_settings")
-      .select("method,account_number,instructions,enabled");
-    if (error) throw error;
-    const byMethod = new Map((data || []).map(x => [x.method, x]));
-    const methods = PAYMENT_METHODS.map(method => byMethod.get(method) || {
-      method, account_number: "", instructions: "Send Money করুন", enabled: true
-    });
-    res.json({ success: true, methods });
-  } catch (error) {
-    console.error("Admin payment settings:", error.message);
-    res.status(500).json({ success: false, message: "Could not load payment settings." });
-  }
-});
-
-// Admin-only: update one payment method.
-app.post("/api/admin/payment-settings", adminAuth, async (req, res) => {
-  try {
-    if (!supabase) return res.status(503).json({ success: false, message: "Database is not configured." });
-    if (!Number.isSafeInteger(ADMIN_TELEGRAM_ID) || !(await isAdmin(ADMIN_TELEGRAM_ID))) {
-      return res.status(403).json({ success: false, message: "Configured admin ID is not authorized." });
-    }
-    const method = String(req.body?.method || "");
-    const account_number = String(req.body?.account_number || "").trim();
-    const instructions = String(req.body?.instructions || "").trim();
-    const enabled = req.body?.enabled;
-    if (!PAYMENT_METHODS.includes(method) ||
-        account_number.length > 30 || instructions.length > 500 ||
-        typeof enabled !== "boolean") {
-      return res.status(400).json({ success: false, message: "Invalid payment settings." });
-    }
-    const { data, error } = await supabase.from("payment_settings").upsert({
-      method, account_number, instructions, enabled, updated_at: new Date().toISOString()
-    }, { onConflict: "method" }).select("method,account_number,instructions,enabled").single();
-    if (error) throw error;
-    res.json({ success: true, method: data });
-  } catch (error) {
-    console.error("Save payment settings:", error.message);
-    res.status(500).json({ success: false, message: "Could not save payment settings." });
-  }
-});
-
-// User referral information
-app.post("/api/referrals/me", async (req, res) => {
-  try {
-    if (!supabase) return res.status(503).json({ success: false, message: "Database is not configured." });
-    const user = verifyTelegramData(req.body?.initData);
-    if (!user) return res.status(401).json({ success: false, message: "Invalid or expired Telegram login." });
-    const { data: profile, error: profileError } = await supabase.from("profiles")
-      .select("referral_code").eq("telegram_id", user.id).single();
-    if (profileError) throw profileError;
-    const { data: records, error: recordsError } = await supabase.from("referral_records")
-      .select("reward_amount,reward_status").eq("referrer_user_id", user.id);
-    if (recordsError) throw recordsError;
-    const rows = records || [];
-    const earnings = rows.filter(x => x.reward_status === "paid")
-      .reduce((sum, x) => sum + Number(x.reward_amount || 0), 0);
-    res.json({ success: true, referralCode: profile.referral_code,
-      referralLink: `https://t.me/${TELEGRAM_BOT_USERNAME}?start=ref_${profile.referral_code}`,
-      totalInvited: rows.length, successfulReferrals: rows.length, referralEarnings: earnings });
-  } catch (error) {
-    console.error("Referral details:", error.message);
-    res.status(500).json({ success: false, message: "Could not load referral details." });
-  }
-});
-
-app.get("/api/admin/referral-settings", adminAuth, async (req, res) => {
-  try {
-    if (!supabase) return res.status(503).json({ success: false, message: "Database is not configured." });
-    if (!Number.isSafeInteger(ADMIN_TELEGRAM_ID) || !(await isAdmin(ADMIN_TELEGRAM_ID)))
-      return res.status(403).json({ success: false, message: "Configured admin ID is not authorized." });
-    const { data, error } = await supabase.from("referral_settings")
-      .select("reward_amount,enabled").eq("id", true).single();
-    if (error) throw error;
-    res.json({ success: true, settings: data });
-  } catch (error) {
-    console.error("Referral settings:", error.message);
-    res.status(500).json({ success: false, message: "Could not load referral settings." });
-  }
-});
-
-app.post("/api/admin/referral-settings", adminAuth, async (req, res) => {
-  try {
-    if (!supabase) return res.status(503).json({ success: false, message: "Database is not configured." });
-    if (!Number.isSafeInteger(ADMIN_TELEGRAM_ID) || !(await isAdmin(ADMIN_TELEGRAM_ID)))
-      return res.status(403).json({ success: false, message: "Configured admin ID is not authorized." });
-    const rewardAmount = Number(req.body?.reward_amount);
-    const enabled = req.body?.enabled;
-    if (!Number.isFinite(rewardAmount) || rewardAmount < 0 || rewardAmount > 100000 ||
-        Math.round(rewardAmount * 100) !== rewardAmount * 100 || typeof enabled !== "boolean")
-      return res.status(400).json({ success: false, message: "Invalid referral settings." });
-    const { data, error } = await supabase.from("referral_settings").upsert({
-      id: true, reward_amount: rewardAmount.toFixed(2), enabled,
-      updated_at: new Date().toISOString()
-    }, { onConflict: "id" }).select("reward_amount,enabled").single();
-    if (error) throw error;
-    res.json({ success: true, settings: data });
-  } catch (error) {
-    console.error("Save referral settings:", error.message);
-    res.status(500).json({ success: false, message: "Could not save referral settings." });
-  }
-});
-
-// Telegram Mini App authentication
-app.post("/api/auth/telegram", async (req, res) => {
-  try {
-    const user = verifyTelegramData(req.body?.initData);
-    if (!user) return res.status(401).json({ success: false, message: "Invalid or expired Telegram login." });
-    if (!supabase) return res.status(503).json({ success: false, message: "Database is not configured." });
-
-    const { error: profileError } = await supabase.from("profiles").upsert({
-      telegram_id: user.id, username: user.username || null,
-      first_name: user.first_name || null, last_name: user.last_name || null
-    }, { onConflict: "telegram_id" });
-    if (profileError) throw profileError;
-
-    const { error: walletCreateError } = await supabase.from("wallets")
-      .upsert({ user_id: user.id }, { onConflict: "user_id", ignoreDuplicates: true });
-    if (walletCreateError) throw walletCreateError;
-
-    const { data: wallet, error: walletError } = await supabase.from("wallets")
-      .select("balance, total_earnings").eq("user_id", user.id).single();
-    if (walletError) throw walletError;
-
-    const { data: attribution, error: attributionError } = await supabase
-      .from("referral_attributions").select("referrer_id")
-      .eq("new_user_id", user.id).maybeSingle();
-    if (attributionError) throw attributionError;
-    if (attribution) {
-      const { error: referralError } = await supabase.rpc("register_referral", {
-        p_referrer_id: attribution.referrer_id, p_referred_id: user.id
-      });
-      if (referralError) console.error("Referral registration:", referralError.message);
-      else {
-        const { error: cleanupError } = await supabase.from("referral_attributions")
-          .delete().eq("new_user_id", user.id);
-        if (cleanupError) console.error("Referral attribution cleanup:", cleanupError.message);
-      }
+async function authenticateTelegram() {
+    if (!tg || !tg.initData) {
+        console.warn("Open ESY EARN BD from Telegram.");
+        return;
     }
 
-    res.json({
-      success: true, message: "Telegram user verified.",
-      user: { id: user.id, first_name: user.first_name || null, last_name: user.last_name || null,
-        username: user.username || null, photo_url: user.photo_url || null },
-      wallet: { balance: wallet.balance, total_earnings: wallet.total_earnings }
-    });
-  } catch (error) {
-    console.error("Telegram authentication:", error.message);
-    res.status(500).json({ success: false, message: "Could not authenticate user." });
-  }
-});
-
-// Deposit request - bKash, Nagad, Rocket only
-app.post("/api/deposit", async (req, res) => {
-  try {
-    if (!supabase) return res.status(503).json({ success: false, message: "Database is not configured." });
-    const user = verifyTelegramData(req.body?.initData);
-    if (!user) return res.status(401).json({ success: false, message: "Invalid or expired Telegram login." });
-
-    const amount = Number(req.body?.amount);
-    const paymentMethod = String(req.body?.payment_method || "").trim();
-    const accountNumber = String(req.body?.account_number || "").trim();
-    const referenceId = String(req.body?.reference_id || "").trim();
-
-    if (!Number.isFinite(amount) || amount < 1 || amount > 1000000 ||
-        Math.round(amount * 100) !== amount * 100) {
-      return res.status(400).json({ success: false, message: "Invalid deposit amount." });
-    }
-    if (!PAYMENT_METHODS.includes(paymentMethod)) {
-      return res.status(400).json({ success: false, message: "Invalid payment method." });
-    }
-    if (accountNumber.length < 5 || accountNumber.length > 100 ||
-        referenceId.length < 4 || referenceId.length > 100) {
-      return res.status(400).json({ success: false, message: "Invalid payment details." });
-    }
-
-    const { data: setting, error: settingError } = await supabase.from("payment_settings")
-      .select("enabled").eq("method", paymentMethod).maybeSingle();
-    if (settingError) throw settingError;
-    if (!setting || !setting.enabled) {
-      return res.status(400).json({ success: false, message: "This payment method is currently unavailable." });
-    }
-
-    const { data, error } = await supabase.from("transactions").insert({
-      user_id: user.id, transaction_type: "deposit", amount: amount.toFixed(2),
-      payment_method: paymentMethod, account_number: accountNumber,
-      reference_id: referenceId, status: "pending"
-    }).select("id, amount, payment_method, status, created_at").single();
-
-    if (error) {
-      if (error.code === "23505") return res.status(409).json({ success: false, message: "This transaction reference has already been used." });
-      throw error;
-    }
-    res.json({ success: true, message: "Deposit request submitted for admin review.", transaction: data });
-  } catch (error) {
-    console.error("Deposit API:", error.message);
-    res.status(500).json({ success: false, message: "Could not submit deposit request." });
-  }
-});
-
-// Withdraw request: wallet amount is reserved immediately; rejected requests are refunded by review_withdraw.
-app.post("/api/withdraw", async (req, res) => {
-  try {
-    if (!supabase) return res.status(503).json({ success: false, message: "Database is not configured." });
-    const user = verifyTelegramData(req.body?.initData);
-    if (!user) return res.status(401).json({ success: false, message: "Invalid or expired Telegram login." });
-
-    const amount = Number(req.body?.amount);
-    const paymentMethod = String(req.body?.payment_method || "").trim();
-    const accountNumber = String(req.body?.account_number || "").trim();
-
-    if (!Number.isFinite(amount) || amount < 1 || amount > 1000000 ||
-        Math.round(amount * 100) !== amount * 100) {
-      return res.status(400).json({ success: false, message: "Invalid withdrawal amount." });
-    }
-    if (!PAYMENT_METHODS.includes(paymentMethod)) {
-      return res.status(400).json({ success: false, message: "Choose bKash, Nagad or Rocket." });
-    }
-    if (accountNumber.length < 5 || accountNumber.length > 100) {
-      return res.status(400).json({ success: false, message: "Enter a valid receiving account number." });
-    }
-
-    const { data, error } = await supabase.rpc("create_withdraw_request", {
-      p_user_id: user.id,
-      p_amount: amount,
-      p_payment_method: paymentMethod,
-      p_account_number: accountNumber
-    });
-    if (error) {
-      const message = /insufficient wallet balance/i.test(error.message)
-        ? "Insufficient wallet balance."
-        : /invalid payment method/i.test(error.message)
-          ? "Invalid payment method."
-          : "Could not submit withdrawal request.";
-      return res.status(400).json({ success: false, message });
-    }
-
-    const { data: wallet, error: walletError } = await supabase.from("wallets")
-      .select("balance,total_earnings").eq("user_id", user.id).single();
-    if (walletError) throw walletError;
-
-    res.json({
-      success: true,
-      message: "Withdrawal request submitted for admin review.",
-      transaction: { id: data.transaction_id, amount, payment_method: paymentMethod, status: "pending" },
-      wallet: { balance: wallet.balance, total_earnings: wallet.total_earnings }
-    });
-  } catch (error) {
-    console.error("Withdraw API:", error.message);
-    res.status(500).json({ success: false, message: "Could not submit withdrawal request." });
-  }
-});
-
-// Admin password login. Password and signing key exist only in Render environment.
-app.post("/api/admin/login", (req, res) => {
-  const ip = req.ip || req.socket.remoteAddress || "unknown";
-  const now = Date.now();
-  const record = loginAttempts.get(ip) || { count: 0, until: 0 };
-  if (record.until > now) return res.status(429).json({ success: false, message: "Too many attempts. Try again later." });
-
-  if (!ADMIN_PASSWORD || !ADMIN_SESSION_SECRET || ADMIN_SESSION_SECRET.length < 32) {
-    return res.status(503).json({ success: false, message: "Admin login is not configured in Render." });
-  }
-
-  const supplied = String(req.body?.password || "");
-  if (!safeEqual(supplied, ADMIN_PASSWORD)) {
-    record.count += 1;
-    if (record.count >= 5) { record.count = 0; record.until = now + 15 * 60 * 1000; }
-    loginAttempts.set(ip, record);
-    return res.status(401).json({ success: false, message: "Incorrect password." });
-  }
-
-  loginAttempts.delete(ip);
-  const token = signSession({ admin: true, exp: Math.floor(now / 1000) + 8 * 60 * 60 });
-  res.json({ success: true, token, expiresIn: 28800 });
-});
-
-app.get("/api/admin/dashboard", adminAuth, async (req, res) => {
-  try {
-    if (!supabase) return res.status(503).json({ success: false, message: "Database is not configured." });
-
-    const [users, wallets, pending, deposits, withdrawals, pendingWithdrawals] = await Promise.all([
-      supabase.from("profiles").select("telegram_id", { count: "exact", head: true }),
-      supabase.from("wallets").select("balance,total_earnings").limit(10000),
-      supabase.from("transactions").select("id,user_id,amount,payment_method,account_number,reference_id,status,created_at")
-        .eq("transaction_type", "deposit").eq("status", "pending").order("created_at", { ascending: false }).limit(100),
-      supabase.from("transactions").select("id,user_id,amount,status,created_at")
-        .eq("transaction_type", "deposit").order("created_at", { ascending: false }).limit(100),
-      supabase.from("transactions").select("id,user_id,amount,payment_method,account_number,status,created_at")
-        .eq("transaction_type", "withdraw").order("created_at", { ascending: false }).limit(100),
-      supabase.from("transactions").select("id,user_id,amount,payment_method,account_number,status,created_at")
-        .eq("transaction_type", "withdraw").eq("status", "pending").order("created_at", { ascending: false }).limit(100)
-    ]);
-
-    for (const result of [users, wallets, pending, deposits, withdrawals, pendingWithdrawals]) {
-      if (result.error) throw result.error;
-    }
-    const walletRows = wallets.data || [];
-    const totalWallet = walletRows.reduce((sum, row) => sum + Number(row.balance || 0), 0);
-    const totalEarnings = walletRows.reduce((sum, row) => sum + Number(row.total_earnings || 0), 0);
-
-    res.json({ success: true, stats: {
-      totalUsers: users.count || 0, walletsLoaded: walletRows.length,
-      totalWallet, totalEarnings, pendingDeposits: (pending.data || []).length,
-      pendingWithdrawals: (pendingWithdrawals.data || []).length
-    }, pendingDeposits: pending.data || [], recentDeposits: deposits.data || [],
-      pendingWithdrawals: pendingWithdrawals.data || [], recentWithdrawals: withdrawals.data || [] });
-  } catch (error) {
-    console.error("Admin dashboard:", error.message);
-    res.status(500).json({ success: false, message: "Could not load dashboard data." });
-  }
-});
-
-app.post("/api/admin/deposits/:id/review", adminAuth, async (req, res) => {
-  try {
-    if (!supabase) return res.status(503).json({ success: false, message: "Database is not configured." });
-    const id = String(req.params.id || "");
-    const action = String(req.body?.action || "");
-    if (!/^[0-9a-f-]{36}$/i.test(id) || !["approve", "reject"].includes(action)) {
-      return res.status(400).json({ success: false, message: "Invalid request." });
-    }
-    if (!Number.isSafeInteger(ADMIN_TELEGRAM_ID) || !(await isAdmin(ADMIN_TELEGRAM_ID))) {
-      return res.status(403).json({ success: false, message: "Configured admin ID is not authorized in admin_users." });
-    }
-
-    const { data, error } = await supabase.rpc("review_deposit", {
-      p_transaction_id: id, p_admin_id: ADMIN_TELEGRAM_ID, p_action: action
-    });
-    if (error) {
-      const message = /already reviewed/i.test(error.message) ? "This request has already been reviewed." : "Could not review this deposit.";
-      return res.status(400).json({ success: false, message });
-    }
-    res.json({ success: true, result: data });
-  } catch (error) {
-    console.error("Deposit review:", error.message);
-    res.status(500).json({ success: false, message: "Server error." });
-  }
-});
-
-// Admin review for withdrawals. Approve only after the money has actually been sent.
-app.post("/api/admin/withdrawals/:id/review", adminAuth, async (req, res) => {
-  try {
-    if (!supabase) return res.status(503).json({ success: false, message: "Database is not configured." });
-    const id = String(req.params.id || "");
-    const action = String(req.body?.action || "");
-    if (!/^[0-9a-f-]{36}$/i.test(id) || !["approve", "reject"].includes(action)) {
-      return res.status(400).json({ success: false, message: "Invalid request." });
-    }
-    if (!Number.isSafeInteger(ADMIN_TELEGRAM_ID) || !(await isAdmin(ADMIN_TELEGRAM_ID))) {
-      return res.status(403).json({ success: false, message: "Configured admin ID is not authorized." });
-    }
-
-    const { data, error } = await supabase.rpc("review_withdraw", {
-      p_transaction_id: id, p_admin_id: ADMIN_TELEGRAM_ID, p_action: action
-    });
-    if (error) {
-      const message = /already reviewed/i.test(error.message) ? "This withdrawal has already been reviewed." : "Could not review this withdrawal.";
-      return res.status(400).json({ success: false, message });
-    }
-    res.json({ success: true, result: data });
-  } catch (error) {
-    console.error("Withdrawal review:", error.message);
-    res.status(500).json({ success: false, message: "Server error." });
-  }
-});
-
-// Telegram bot retained
-let bot = null;
-if (BOT_TOKEN) {
-  bot = new Telegraf(BOT_TOKEN);
-  bot.start(async (ctx) => {
     try {
-      const match = String(ctx.startPayload || "").match(/^ref_(ESY[A-Z0-9]{10})$/i);
-      if (match && supabase) {
-        const newUserId = ctx.from.id;
-        const { data: existing, error: existingError } = await supabase.from("profiles")
-          .select("telegram_id").eq("telegram_id", newUserId).maybeSingle();
-        if (existingError) throw existingError;
-        if (!existing) {
-          const { data: referrer, error: referrerError } = await supabase.from("profiles")
-            .select("telegram_id").eq("referral_code", match[1].toUpperCase()).maybeSingle();
-          if (referrerError) throw referrerError;
-          if (referrer && Number(referrer.telegram_id) !== Number(newUserId)) {
-            const { error } = await supabase.from("referral_attributions").upsert(
-              { new_user_id: newUserId, referrer_id: referrer.telegram_id },
-              { onConflict: "new_user_id", ignoreDuplicates: true });
-            if (error) throw error;
-          }
-        }
-      }
-    } catch (error) { console.error("Referral start payload:", error.message); }
-    return ctx.reply("Welcome to ESY EARN BD! 🎉", {
-      reply_markup: { inline_keyboard: [[{ text: "🚀 Open ESY EARN BD", web_app: { url: MINI_APP_URL } }]] }
-    });
-  });
-
-  bot.command("pending", async (ctx) => {
-    try {
-      if (!supabase) return ctx.reply("Database is not configured.");
-      const adminId = ctx.from.id;
-      if (!(await isAdmin(adminId))) return ctx.reply("⛔ You are not authorized.");
-      const { data, error } = await supabase.from("transactions")
-        .select("id,user_id,amount,payment_method,account_number,reference_id,created_at")
-        .eq("transaction_type", "deposit").eq("status", "pending")
-        .order("created_at", { ascending: true }).limit(10);
-      if (error) throw error;
-      if (!data?.length) return ctx.reply("✅ No pending deposits found.");
-      await ctx.reply(`📥 Pending Deposits: ${data.length}`);
-      for (const d of data) {
-        await ctx.reply(
-          `💰 NEW DEPOSIT REQUEST\n\n👤 User ID: ${d.user_id}\n💵 Amount: ৳${d.amount}\n🏦 Method: ${d.payment_method}\n📱 Account: ${d.account_number}\n🧾 Reference: ${d.reference_id}\n🕒 Date: ${d.created_at}\n🆔 Transaction: ${d.id}`,
-          Markup.inlineKeyboard([[Markup.button.callback("✅ Approve", `dep_approve:${d.id}`), Markup.button.callback("❌ Reject", `dep_reject:${d.id}`)]])
-        );
-      }
-    } catch (error) { console.error("Pending command:", error.message); ctx.reply("Could not load pending deposits."); }
-  });
-
-  for (const action of ["approve", "reject"]) {
-    bot.action(new RegExp(`^dep_${action}:([0-9a-f-]{36})$`, "i"), async (ctx) => {
-      try {
-        const adminId = ctx.from.id;
-        if (!(await isAdmin(adminId))) return ctx.answerCbQuery("Unauthorized", { show_alert: true });
-        const { data, error } = await supabase.rpc("review_deposit", {
-          p_transaction_id: ctx.match[1], p_admin_id: adminId, p_action: action
+        const response = await fetch(`${API_URL}/api/auth/telegram`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ initData: tg.initData })
         });
-        if (error) return ctx.answerCbQuery("Failed: " + error.message, { show_alert: true });
-        await ctx.answerCbQuery(action === "approve" ? "Deposit approved!" : "Deposit rejected!");
-        await ctx.editMessageText(ctx.callbackQuery.message.text +
-          (action === "approve" ? `\n\n✅ APPROVED\n💵 Added: ৳${data.amount}` : "\n\n❌ REJECTED"));
-      } catch (error) {
-        console.error("Deposit action:", error.message);
-        ctx.answerCbQuery("Something went wrong.", { show_alert: true });
-      }
-    });
-  }
-  bot.catch((err) => console.error("Telegram Bot error:", err.message));
-  bot.launch().then(() => console.log("Telegram Bot started!"))
-    .catch((err) => console.error("Telegram Bot failed:", err.message));
+
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+            throw new Error(result.message || "Telegram verification failed.");
+        }
+
+        user = result.user;
+        isAuthenticated = true;
+
+        updateUserProfile();
+        updateWallet(result.wallet);
+
+        // Authentication শেষ হলে Referral তথ্য লোড হবে
+        loadReferralDetails();
+
+    } catch (error) {
+        console.error("Authentication error:", error);
+        alert("Login verification failed. Please reopen the app from Telegram.");
+    }
 }
 
-app.listen(PORT, () => console.log(`ESY EARN BD server running on port ${PORT}`));
-process.once("SIGINT", () => bot?.stop("SIGINT"));
-process.once("SIGTERM", () => bot?.stop("SIGTERM"));
+// ========================================
+// USER PROFILE
+// ========================================
+
+function updateUserProfile() {
+    if (!user || !isAuthenticated) return;
+
+    const fullName = [user.first_name, user.last_name]
+        .filter(Boolean).join(" ") || "ESY EARN BD User";
+
+    const username = user.username
+        ? "@" + user.username
+        : "Telegram User";
+
+    const userNameElement = document.getElementById("userName");
+    const usernameElement = document.getElementById("userUsername");
+    const profileNameElement = document.getElementById("profileName");
+    const profileUsernameElement = document.getElementById("profileUsername");
+
+    if (userNameElement) userNameElement.textContent = fullName;
+    if (usernameElement) usernameElement.textContent = username;
+    if (profileNameElement) profileNameElement.textContent = fullName;
+    if (profileUsernameElement) profileUsernameElement.textContent = username;
+}
+
+function updateWallet(wallet) {
+    if (!wallet) return;
+
+    const balanceElement = document.getElementById("balance");
+    const earningsElement = document.getElementById("totalEarnings");
+    const todayElement = document.getElementById("todayEarnings");
+
+    if (balanceElement) {
+        balanceElement.textContent = formatMoney(wallet.balance);
+    }
+
+    if (earningsElement) {
+        earningsElement.textContent = formatMoney(wallet.total_earnings);
+    }
+
+    if (todayElement) {
+        todayElement.textContent = "0.00";
+    }
+}
+
+// ========================================
+// REFERRAL SYSTEM
+// ========================================
+
+function showReferralLink() {
+    const codeElement = document.getElementById("referralCode");
+
+    if (codeElement) {
+        codeElement.textContent = referralCode || "লোড হচ্ছে...";
+    }
+
+    // Referral link দেখানোর জায়গা তৈরি
+    let linkElement = document.getElementById("referralLink");
+
+    if (!linkElement && codeElement) {
+        linkElement = document.createElement("div");
+        linkElement.id = "referralLink";
+        linkElement.style.cssText = `
+            word-break: break-all;
+            padding: 12px;
+            margin-top: 12px;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.08);
+            font-size: 13px;
+            line-height: 1.6;
+        `;
+
+        codeElement.insertAdjacentElement("afterend", linkElement);
+    }
+
+    if (linkElement) {
+        linkElement.textContent = referralLink || "Referral link লোড হচ্ছে...";
+    }
+}
+
+async function loadReferralDetails() {
+    if (!tg || !tg.initData) {
+        console.warn("Telegram login required for referrals.");
+        return;
+    }
+
+    if (!isAuthenticated) return;
+
+    const codeElement = document.getElementById("referralCode");
+    if (codeElement) codeElement.textContent = "লোড হচ্ছে...";
+
+    try {
+        const response = await fetch(`${API_URL}/api/referrals/me`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                initData: tg.initData
+            }),
+            cache: "no-store"
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+            throw new Error(
+                result.message || "Referral information could not be loaded."
+            );
+        }
+
+        referralCode = result.referralCode || "";
+        referralLink = result.referralLink || "";
+
+        showReferralLink();
+
+        const totalElement = document.getElementById("totalInvited");
+        const successfulElement = document.getElementById("successfulReferrals");
+        const earningsElement = document.getElementById("referralEarnings");
+
+        if (totalElement) {
+            totalElement.textContent = Number(result.totalInvited || 0);
+        }
+
+        if (successfulElement) {
+            successfulElement.textContent =
+                Number(result.successfulReferrals || 0);
+        }
+
+        if (earningsElement) {
+            earningsElement.textContent =
+                formatMoney(result.referralEarnings || 0);
+        }
+
+    } catch (error) {
+        console.error("Referral loading error:", error);
+
+        if (codeElement) {
+            codeElement.textContent = "লোড করা যায়নি";
+        }
+
+        const linkElement = document.getElementById("referralLink");
+
+        if (linkElement) {
+            linkElement.textContent =
+                "Referral তথ্য পাওয়া যায়নি। আবার চেষ্টা করুন।";
+        }
+    }
+}
+
+// Referral Link Copy
+const copyReferralButton = document.getElementById("copyReferralBtn");
+
+if (copyReferralButton) {
+    copyReferralButton.onclick = async () => {
+        if (!referralLink) {
+            alert("আগে Referral Link লোড হতে দিন।");
+            await loadReferralDetails();
+            return;
+        }
+
+        try {
+            await navigator.clipboard.writeText(referralLink);
+            alert("সম্পূর্ণ Referral Link কপি হয়েছে!");
+        } catch (error) {
+            alert("আপনার Referral Link:\n" + referralLink);
+        }
+    };
+}
+
+// Referral Link Share
+const shareReferralButton = document.getElementById("shareReferralBtn");
+
+if (shareReferralButton) {
+    shareReferralButton.onclick = () => {
+        if (!referralLink) {
+            alert("Referral Link এখনো লোড হয়নি।");
+            return;
+        }
+
+        const message =
+            "Join ESY EARN BD using my referral link:\n" + referralLink;
+
+        const shareURL =
+            "https://t.me/share/url?url=" +
+            encodeURIComponent(referralLink) +
+            "&text=" +
+            encodeURIComponent("Join ESY EARN BD using my referral link!");
+
+        if (tg && typeof tg.openTelegramLink === "function") {
+            tg.openTelegramLink(shareURL);
+        } else {
+            window.open(shareURL, "_blank");
+        }
+    };
+}
+
+// ========================================
+// PAYMENT SETTINGS
+// ========================================
+
+function getPaymentSettingsRows(result) {
+    if (Array.isArray(result)) return result;
+
+    const possibleLists = [
+        result?.methods,
+        result?.settings,
+        result?.payment_settings,
+        result?.paymentMethods,
+        result?.data
+    ];
+
+    for (const list of possibleLists) {
+        if (Array.isArray(list)) return list;
+
+        if (list && typeof list === "object") {
+            return Object.entries(list).map(([method, value]) => ({
+                method,
+                ...(value || {})
+            }));
+        }
+    }
+
+    return [];
+}
+
+function showPaymentInfo(method) {
+    const infoBox = document.getElementById("paymentInstructions");
+
+    const selected = availablePaymentMethods.find(
+        item => item.method === method
+    );
+
+    if (!infoBox) return;
+
+    if (!selected) {
+        infoBox.innerHTML =
+            '<p class="payment-info-muted">এই মুহূর্তে কোনো পেমেন্ট মেথড নির্বাচন করা হয়নি।</p>';
+        return;
+    }
+
+    const accountNumber = String(
+        selected.account_number || ""
+    ).trim();
+
+    const instructions = String(
+        selected.instructions || ""
+    ).trim();
+
+    if (!accountNumber) {
+        infoBox.innerHTML = `
+            <strong>${escapeHTML(method)} নম্বর</strong>
+            <p class="payment-info-warning">
+                অ্যাডমিন এখনো এই মেথডের পেমেন্ট নম্বর সেট করেননি।
+                অনুগ্রহ করে পরে চেষ্টা করুন।
+            </p>
+        `;
+        return;
+    }
+
+    infoBox.innerHTML = `
+        <strong>${escapeHTML(method)}-তে টাকা পাঠান</strong>
+        <div class="payment-receiver-number">
+            ${escapeHTML(accountNumber)}
+        </div>
+        <button type="button"
+            id="copyPaymentNumberBtn"
+            class="copy-payment-number">
+            নম্বর কপি করুন
+        </button>
+        <p class="payment-info-instructions">
+            ${escapeHTML(
+                instructions ||
+                "উপরের নম্বরে টাকা পাঠিয়ে নিচের ফর্ম পূরণ করুন।"
+            )}
+        </p>
+    `;
+
+    const copyButton = document.getElementById(
+        "copyPaymentNumberBtn"
+    );
+
+    if (copyButton) {
+        copyButton.onclick = async () => {
+            try {
+                await navigator.clipboard.writeText(accountNumber);
+                copyButton.textContent = "কপি হয়েছে ✓";
+            } catch {
+                alert("Payment number: " + accountNumber);
+            }
+        };
+    }
+}
+
+async function loadPaymentSettings() {
+    const methodSelect = document.getElementById("depositMethod");
+    const messageElement = document.getElementById("depositMessage");
+
+    if (!methodSelect) return;
+
+    methodSelect.disabled = true;
+    methodSelect.innerHTML =
+        '<option value="">পেমেন্ট মেথড লোড হচ্ছে...</option>';
+
+    try {
+        const response = await fetch(
+            `${API_URL}/api/payment-settings`,
+            {
+                method: "GET",
+                cache: "no-store"
+            }
+        );
+
+        const result = await response.json();
+
+        if (!response.ok || result.success === false) {
+            throw new Error(
+                result.message || "Payment settings could not be loaded."
+            );
+        }
+
+        const allowed = ["bKash", "Nagad", "Rocket"];
+
+        availablePaymentMethods = getPaymentSettingsRows(result)
+            .map(item => ({
+                method: String(item.method || item.name || ""),
+                account_number: item.account_number || "",
+                instructions: item.instructions || "",
+                enabled: item.enabled !== false
+            }))
+            .filter(item =>
+                allowed.includes(item.method) && item.enabled
+            );
+
+        methodSelect.innerHTML =
+            '<option value="">Select Method</option>';
+
+        availablePaymentMethods.forEach(item => {
+            const option = document.createElement("option");
+            option.value = item.method;
+            option.textContent = item.method;
+            methodSelect.appendChild(option);
+        });
+
+        if (availablePaymentMethods.length === 0) {
+            methodSelect.innerHTML =
+                '<option value="">No payment method available</option>';
+
+            setMessage(
+                messageElement,
+                "বর্তমানে কোনো Deposit Method চালু নেই। পরে আবার চেষ্টা করুন।",
+                true
+            );
+        } else {
+            setMessage(messageElement, "");
+        }
+
+        showPaymentInfo(methodSelect.value);
+
+    } catch (error) {
+        console.error("Payment settings error:", error);
+
+        methodSelect.innerHTML =
+            '<option value="">পেমেন্ট মেথড লোড হয়নি</option>';
+
+        setMessage(
+            messageElement,
+            "পেমেন্ট তথ্য লোড করা যায়নি। কিছুক্ষণ পর আবার চেষ্টা করুন।",
+            true
+        );
+
+        const infoBox = document.getElementById(
+            "paymentInstructions"
+        );
+
+        if (infoBox) {
+            infoBox.innerHTML =
+                '<p class="payment-info-warning">সার্ভার থেকে পেমেন্ট তথ্য পাওয়া যায়নি। অনুগ্রহ করে পরে আবার চেষ্টা করুন।</p>';
+        }
+
+    } finally {
+        methodSelect.disabled = false;
+    }
+}
+
+// ========================================
+// TRANSACTION HISTORY
+// ========================================
+
+function transactionTypeLabel(type) {
+    const labels = {
+        deposit: "Deposit / টাকা জমা",
+        withdraw: "Withdraw / টাকা উত্তোলন",
+        earning: "Task Earning / কাজের আয়",
+        referral: "Referral Reward / রেফারেল আয়"
+    };
+
+    return labels[type] || "Transaction";
+}
+
+function transactionStatusLabel(status) {
+    const labels = {
+        pending: "অপেক্ষমাণ",
+        approved: "অনুমোদিত",
+        rejected: "বাতিল",
+        completed: "সম্পন্ন"
+    };
+
+    return labels[status] || status || "অজানা";
+}
+
+async function loadTransactionHistory() {
+    const list = document.getElementById("transactionList");
+
+    if (!list) return;
+
+    if (!tg || !tg.initData) {
+        list.innerHTML =
+            '<p class="payment-info-warning">Transaction History দেখতে Telegram থেকে অ্যাপটি খুলুন।</p>';
+        return;
+    }
+
+    if (!isAuthenticated) {
+        list.innerHTML =
+            "<p>Login verification চলছে। একটু অপেক্ষা করুন...</p>";
+        return;
+    }
+
+    list.innerHTML = "<p>লেনদেনের তথ্য লোড হচ্ছে...</p>";
+
+    try {
+        const response = await fetch(
+            `${API_URL}/api/transactions`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    initData: tg.initData
+                }),
+                cache: "no-store"
+            }
+        );
+
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+            throw new Error(
+                result.message || "লেনদেনের তথ্য লোড করা যায়নি।"
+            );
+        }
+
+        const transactions = Array.isArray(result.transactions)
+            ? result.transactions
+            : [];
+
+        if (transactions.length === 0) {
+            list.innerHTML =
+                '<div class="task-card"><p>এখনো কোনো লেনদেন পাওয়া যায়নি।</p></div>';
+            return;
+        }
+
+        list.innerHTML = transactions.map(item => {
+            const amount = formatMoney(item.amount);
+
+            const date = item.created_at
+                ? new Date(item.created_at).toLocaleString("bn-BD", {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit"
+                })
+                : "তারিখ পাওয়া যায়নি";
+
+            const method = item.payment_method
+                ? `<p>মেথড: ${escapeHTML(item.payment_method)}</p>`
+                : "";
+
+            const reference = item.reference_id
+                ? `<p>রেফারেন্স: ${escapeHTML(item.reference_id)}</p>`
+                : "";
+
+            return `
+                <div class="task-card transaction-card">
+                    <div class="transaction-heading">
+                        <strong>
+                            ${escapeHTML(
+                                transactionTypeLabel(item.transaction_type)
+                            )}
+                        </strong>
+                        <strong>৳${escapeHTML(amount)}</strong>
+                    </div>
+
+                    <p>
+                        স্ট্যাটাস:
+                        ${escapeHTML(
+                            transactionStatusLabel(item.status)
+                        )}
+                    </p>
+
+                    ${method}
+                    ${reference}
+
+                    <small>${escapeHTML(date)}</small>
+                </div>
+            `;
+        }).join("");
+
+    } catch (error) {
+        console.error("Transaction history error:", error);
+
+        list.innerHTML = `
+            <div class="task-card">
+                <p class="payment-info-warning">
+                    ${escapeHTML(
+                        error.message ||
+                        "লেনদেনের তথ্য লোড করা যায়নি।"
+                    )}
+                </p>
+                <button type="button" id="retryHistoryBtn">
+                    আবার চেষ্টা করুন
+                </button>
+            </div>
+        `;
+
+        const retryButton = document.getElementById(
+            "retryHistoryBtn"
+        );
+
+        if (retryButton) {
+            retryButton.onclick = loadTransactionHistory;
+        }
+    }
+}
+
+// ========================================
+// PAGE NAVIGATION
+// ========================================
+
+const pages = document.querySelectorAll(".page");
+
+function showPage(pageId) {
+    pages.forEach(page => {
+        page.style.display = "none";
+    });
+
+    const page = document.getElementById(pageId);
+
+    if (page) {
+        page.style.display = "block";
+    }
+
+    if (pageId === "depositPage") {
+        loadPaymentSettings();
+    }
+
+    if (pageId === "historyPage") {
+        loadTransactionHistory();
+    }
+
+    if (pageId === "referPage") {
+        loadReferralDetails();
+    }
+
+    window.scrollTo({
+        top: 0,
+        behavior: "smooth"
+    });
+}
+
+function showDashboard() {
+    showPage("dashboardPage");
+}
+
+// ========================================
+// DASHBOARD MENU
+// ========================================
+
+const menuButtons = {
+    primeJobBtn: "primeJobPage",
+    microjobBtn: "microjobPage",
+    freeJobBtn: "freeJobPage",
+    depositBtn: "depositPage",
+    withdrawBtn: "withdrawPage",
+    referBtn: "referPage",
+    historyBtn: "historyPage"
+};
+
+Object.entries(menuButtons).forEach(([buttonId, pageId]) => {
+    const button = document.getElementById(buttonId);
+
+    if (button) {
+        button.onclick = () => showPage(pageId);
+    }
+});
+
+// ========================================
+// BOTTOM NAVIGATION
+// ========================================
+
+const bottomNavigation = {
+    homeNav: showDashboard,
+    jobsNav: () => showPage("freeJobPage"),
+    walletNav: () => showPage("withdrawPage"),
+    profileNav: () => showPage("profilePage")
+};
+
+Object.entries(bottomNavigation).forEach(([buttonId, action]) => {
+    const button = document.getElementById(buttonId);
+
+    if (button) {
+        button.onclick = action;
+    }
+});
+
+// ========================================
+// BACK BUTTONS
+// ========================================
+
+document.querySelectorAll(".backBtn").forEach(button => {
+    button.onclick = showDashboard;
+});
+
+// ========================================
+// NOTIFICATIONS
+// ========================================
+
+const notificationButton = document.getElementById(
+    "notificationBtn"
+);
+
+if (notificationButton) {
+    notificationButton.onclick = () => {
+        alert("No new notifications.");
+    };
+}
+
+// ========================================
+// DEPOSIT METHOD CHANGE
+// ========================================
+
+const depositMethodSelect = document.getElementById(
+    "depositMethod"
+);
+
+if (depositMethodSelect) {
+    depositMethodSelect.addEventListener("change", event => {
+        showPaymentInfo(event.target.value);
+    });
+}
+
+// ========================================
+// DEPOSIT FORM
+// ========================================
+
+const depositForm = document.getElementById("depositForm");
+
+if (depositForm) {
+    depositForm.onsubmit = async function(event) {
+        event.preventDefault();
+
+        const messageElement = document.getElementById(
+            "depositMessage"
+        );
+
+        const submitButton = document.getElementById(
+            "depositSubmitBtn"
+        );
+
+        if (!tg || !tg.initData) {
+            setMessage(
+                messageElement,
+                "Please open the app from Telegram.",
+                true
+            );
+            return;
+        }
+
+        if (!isAuthenticated || !user) {
+            setMessage(
+                messageElement,
+                "Please wait. Login verification is in progress.",
+                true
+            );
+            return;
+        }
+
+        const method = document.getElementById(
+            "depositMethod"
+        ).value;
+
+        const amount = Number(
+            document.getElementById("depositAmount").value
+        );
+
+        const accountNumber = document.getElementById(
+            "depositAccountNumber"
+        ).value.trim();
+
+        const transactionId = document.getElementById(
+            "depositTransactionId"
+        ).value.trim();
+
+        const selectedMethod = availablePaymentMethods.find(
+            item => item.method === method
+        );
+
+        if (
+            !selectedMethod ||
+            !String(selectedMethod.account_number || "").trim()
+        ) {
+            setMessage(
+                messageElement,
+                "এই পেমেন্ট মেথডের নম্বর সেট করা হয়নি অথবা মেথডটি বন্ধ আছে।",
+                true
+            );
+            return;
+        }
+
+        if (
+            !method ||
+            !Number.isFinite(amount) ||
+            amount < 1 ||
+            amount > 1000000 ||
+            Math.round(amount * 100) !== amount * 100 ||
+            accountNumber.length < 5 ||
+            transactionId.length < 4
+        ) {
+            setMessage(
+                messageElement,
+                "Please enter valid deposit details.",
+                true
+            );
+            return;
+        }
+
+        submitButton.disabled = true;
+        submitButton.textContent = "Submitting...";
+
+        setMessage(messageElement, "");
+
+        try {
+            const response = await fetch(
+                `${API_URL}/api/deposit`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        amount,
+                        payment_method: method,
+                        account_number: accountNumber,
+                        reference_id: transactionId
+                    })
+                }
+            );
+
+            const result = await response.json();
+
+            if (!response.ok || !result.success) {
+                throw new Error(
+                    result.message || "Deposit request failed."
+                );
+            }
+
+            setMessage(
+                messageElement,
+                "Deposit request submitted successfully! Status: Pending Approval."
+            );
+
+            this.reset();
+            showPaymentInfo("");
+
+            if (tg.HapticFeedback) {
+                tg.HapticFeedback.notificationOccurred("success");
+            }
+
+            alert(
+                "Deposit request submitted successfully!\n\n" +
+                "Amount: ৳" +
+                formatMoney(result.transaction?.amount ?? amount) +
+                "\nMethod: " +
+                (result.transaction?.payment_method || method) +
+                "\nStatus: Pending Approval\n\n" +
+                "Admin will review your payment."
+            );
+
+        } catch (error) {
+            console.error("Deposit error:", error);
+
+            setMessage(
+                messageElement,
+                error.message || "Deposit request failed.",
+                true
+            );
+
+            if (tg?.HapticFeedback) {
+                tg.HapticFeedback.notificationOccurred("error");
+            }
+
+        } finally {
+            submitButton.disabled = false;
+            submitButton.textContent = "Submit Deposit";
+        }
+    };
+}
+
+// ========================================
+// WITHDRAWAL FORM
+// ========================================
+
+const withdrawForm = document.getElementById("withdrawForm");
+
+if (withdrawForm) {
+    withdrawForm.onsubmit = async function(event) {
+        event.preventDefault();
+
+        const messageElement = document.getElementById(
+            "withdrawMessage"
+        );
+
+        const submitButton = document.getElementById(
+            "withdrawSubmitBtn"
+        );
+
+        if (!tg || !tg.initData) {
+            setMessage(
+                messageElement,
+                "Telegram থেকে অ্যাপটি খুলুন।",
+                true
+            );
+            return;
+        }
+
+        if (!isAuthenticated || !user) {
+            setMessage(
+                messageElement,
+                "Login verification চলছে। একটু অপেক্ষা করুন।",
+                true
+            );
+            return;
+        }
+
+        const method = document.getElementById(
+            "withdrawMethod"
+        ).value;
+
+        const account = document.getElementById(
+            "withdrawAccount"
+        ).value.trim();
+
+        const amount = Number(
+            document.getElementById("withdrawAmount").value
+        );
+
+        if (!["bKash", "Nagad", "Rocket"].includes(method)) {
+            setMessage(
+                messageElement,
+                "সঠিক Payment Method নির্বাচন করুন।",
+                true
+            );
+            return;
+        }
+
+        if (
+            !Number.isFinite(amount) ||
+            amount < 1 ||
+            amount > 1000000 ||
+            Math.round(amount * 100) !== amount * 100 ||
+            account.length < 5 ||
+            account.length > 100
+        ) {
+            setMessage(
+                messageElement,
+                "সঠিক Account Number এবং Amount দিন।",
+                true
+            );
+            return;
+        }
+
+        submitButton.disabled = true;
+        submitButton.textContent = "Submitting...";
+
+        setMessage(messageElement, "");
+
+        try {
+            const response = await fetch(
+                `${API_URL}/api/withdraw`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        amount,
+                        payment_method: method,
+                        account_number: account
+                    })
+                }
+            );
+
+            const result = await response.json();
+
+            if (!response.ok || !result.success) {
+                throw new Error(
+                    result.message || "Withdrawal request failed."
+                );
+            }
+
+            if (result.wallet) {
+                updateWallet(result.wallet);
+            }
+
+            setMessage(
+                messageElement,
+                "Withdrawal Request সফলভাবে জমা হয়েছে। Admin যাচাই করার পর পেমেন্ট সম্পন্ন হবে।"
+            );
+
+            const transaction = result.transaction || {};
+
+            this.reset();
+
+            if (tg?.HapticFeedback) {
+                tg.HapticFeedback.notificationOccurred("success");
+            }
+
+            alert(
+                "Withdrawal request submitted!\n\n" +
+                "Amount: ৳" +
+                formatMoney(transaction.amount ?? amount) +
+                "\nMethod: " +
+                (transaction.payment_method || method) +
+                "\nStatus: Pending Approval\n\n" +
+                "Admin review করার পর পেমেন্ট সম্পন্ন হবে।"
+            );
+
+        } catch (error) {
+            console.error("Withdrawal error:", error);
+
+            setMessage(
+                messageElement,
+                error.message || "Withdrawal request failed.",
+                true
+            );
+
+            if (tg?.HapticFeedback) {
+                tg.HapticFeedback.notificationOccurred("error");
+            }
+
+        } finally {
+            submitButton.disabled = false;
+            submitButton.textContent = "Submit Withdrawal";
+        }
+    };
+}
+
+// ========================================
+// DEMO TASK BUTTONS
+// ========================================
+
+[
+    "primeTaskOneBtn",
+    "primeTaskTwoBtn",
+    "microTaskOneBtn",
+    "microTaskTwoBtn",
+    "freeTaskOneBtn",
+    "freeTaskTwoBtn"
+].forEach(id => {
+    const button = document.getElementById(id);
+
+    if (button) {
+        button.onclick = () => {
+            alert(
+                "Task details and submission system will be connected with the backend later."
+            );
+        };
+    }
+});
+
+// ========================================
+// INITIAL PAGE AND STARTUP
+// ========================================
+
+showDashboard();
+
+loadPaymentSettings();
+
+authenticateTelegram();
