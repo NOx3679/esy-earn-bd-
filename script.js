@@ -10,6 +10,8 @@ const API_URL = "https://esy-earn-bd.onrender.com";
 let user = null;
 let isAuthenticated = false;
 let availablePaymentMethods = [];
+let referralLink = "";
+let referralCode = "";
 
 function formatMoney(amount) {
     const value = Number(amount);
@@ -43,8 +45,11 @@ async function authenticateTelegram() {
 
         user = result.user;
         isAuthenticated = true;
+
         updateUserProfile();
         updateWallet(result.wallet);
+        loadReferralDetails();
+
     } catch (error) {
         console.error("Authentication error:", error);
         alert("Login verification failed. Please reopen the app from Telegram.");
@@ -56,20 +61,73 @@ function updateUserProfile() {
 
     const fullName = [user.first_name, user.last_name]
         .filter(Boolean).join(" ") || "ESY EARN BD User";
+
     const username = user.username ? "@" + user.username : "Telegram User";
 
     document.getElementById("userName").textContent = fullName;
     document.getElementById("userUsername").textContent = username;
     document.getElementById("profileName").textContent = fullName;
     document.getElementById("profileUsername").textContent = username;
-    document.getElementById("referralCode").textContent = "ESY" + user.id;
 }
 
 function updateWallet(wallet) {
     if (!wallet) return;
+
     document.getElementById("balance").textContent = formatMoney(wallet.balance);
     document.getElementById("totalEarnings").textContent = formatMoney(wallet.total_earnings);
     document.getElementById("todayEarnings").textContent = "0.00";
+}
+
+// Referral Details
+async function loadReferralDetails() {
+    if (!tg || !tg.initData || !isAuthenticated) return;
+
+    try {
+        const response = await fetch(`${API_URL}/api/referrals/me`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ initData: tg.initData }),
+            cache: "no-store"
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+            throw new Error(result.message || "Referral details could not be loaded.");
+        }
+
+        referralCode = result.referralCode || "";
+        referralLink = result.referralLink || "";
+
+        const codeElement = document.getElementById("referralCode");
+        const invitedElement = document.getElementById("totalInvited");
+        const successfulElement = document.getElementById("successfulReferrals");
+        const earningsElement = document.getElementById("referralEarnings");
+
+        if (codeElement) {
+            codeElement.textContent = referralCode || "Not available";
+        }
+
+        if (invitedElement) {
+            invitedElement.textContent = Number(result.totalInvited || 0);
+        }
+
+        if (successfulElement) {
+            successfulElement.textContent = Number(result.successfulReferrals || 0);
+        }
+
+        if (earningsElement) {
+            earningsElement.textContent = formatMoney(result.referralEarnings || 0);
+        }
+
+    } catch (error) {
+        console.error("Referral loading error:", error);
+
+        const codeElement = document.getElementById("referralCode");
+        if (codeElement) {
+            codeElement.textContent = "লোড হয়নি";
+        }
+    }
 }
 
 function getPaymentSettingsRows(result) {
@@ -85,6 +143,7 @@ function getPaymentSettingsRows(result) {
 
     for (const list of possibleLists) {
         if (Array.isArray(list)) return list;
+
         if (list && typeof list === "object") {
             return Object.entries(list).map(([method, value]) => ({
                 method,
@@ -92,12 +151,14 @@ function getPaymentSettingsRows(result) {
             }));
         }
     }
+
     return [];
 }
 
 function showPaymentInfo(method) {
     const infoBox = document.getElementById("paymentInstructions");
     const selected = availablePaymentMethods.find(item => item.method === method);
+
     if (!infoBox) return;
 
     if (!selected) {
@@ -124,6 +185,7 @@ function showPaymentInfo(method) {
     `;
 
     const copyButton = document.getElementById("copyPaymentNumberBtn");
+
     if (copyButton) {
         copyButton.onclick = async () => {
             try {
@@ -149,6 +211,7 @@ function escapeHTML(value) {
 async function loadPaymentSettings() {
     const methodSelect = document.getElementById("depositMethod");
     const messageElement = document.getElementById("depositMessage");
+
     if (!methodSelect) return;
 
     methodSelect.disabled = true;
@@ -159,6 +222,7 @@ async function loadPaymentSettings() {
             method: "GET",
             cache: "no-store"
         });
+
         const result = await response.json();
 
         if (!response.ok || result.success === false) {
@@ -166,6 +230,7 @@ async function loadPaymentSettings() {
         }
 
         const allowed = ["bKash", "Nagad", "Rocket"];
+
         availablePaymentMethods = getPaymentSettingsRows(result)
             .map(item => ({
                 method: String(item.method || item.name || ""),
@@ -192,14 +257,20 @@ async function loadPaymentSettings() {
         }
 
         showPaymentInfo(methodSelect.value);
+
     } catch (error) {
         console.error("Payment settings error:", error);
+
         methodSelect.innerHTML = '<option value="">পেমেন্ট মেথড লোড হয়নি</option>';
+
         setMessage(messageElement, "পেমেন্ট তথ্য লোড করা যায়নি। কিছুক্ষণ পর আবার চেষ্টা করুন।", true);
+
         const infoBox = document.getElementById("paymentInstructions");
+
         if (infoBox) {
             infoBox.innerHTML = '<p class="payment-info-warning">সার্ভার থেকে পেমেন্ট তথ্য পাওয়া যায়নি। অনুগ্রহ করে পরে আবার চেষ্টা করুন।</p>';
         }
+
     } finally {
         methodSelect.disabled = false;
     }
@@ -212,6 +283,7 @@ function transactionTypeLabel(type) {
         earning: "Task Earning / কাজের আয়",
         referral: "Referral Reward / রেফারেল আয়"
     };
+
     return labels[type] || "Transaction";
 }
 
@@ -222,17 +294,20 @@ function transactionStatusLabel(status) {
         rejected: "বাতিল",
         completed: "সম্পন্ন"
     };
+
     return labels[status] || status || "অজানা";
 }
 
 async function loadTransactionHistory() {
     const list = document.getElementById("transactionList");
+
     if (!list) return;
 
     if (!tg || !tg.initData) {
         list.innerHTML = '<p class="payment-info-warning">Transaction History দেখতে Telegram থেকে অ্যাপটি খুলুন।</p>';
         return;
     }
+
     if (!isAuthenticated) {
         list.innerHTML = "<p>Login verification চলছে। একটু অপেক্ষা করুন...</p>";
         return;
@@ -247,6 +322,7 @@ async function loadTransactionHistory() {
             body: JSON.stringify({ initData: tg.initData }),
             cache: "no-store"
         });
+
         const result = await response.json();
 
         if (!response.ok || !result.success) {
@@ -254,6 +330,7 @@ async function loadTransactionHistory() {
         }
 
         const transactions = Array.isArray(result.transactions) ? result.transactions : [];
+
         if (transactions.length === 0) {
             list.innerHTML = '<div class="task-card"><p>এখনো কোনো লেনদেন পাওয়া যায়নি।</p></div>';
             return;
@@ -261,15 +338,21 @@ async function loadTransactionHistory() {
 
         list.innerHTML = transactions.map(item => {
             const amount = formatMoney(item.amount);
+
             const date = item.created_at
                 ? new Date(item.created_at).toLocaleString("bn-BD", {
-                    year: "numeric", month: "short", day: "numeric",
-                    hour: "2-digit", minute: "2-digit"
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit"
                 })
                 : "তারিখ পাওয়া যায়নি";
+
             const method = item.payment_method
                 ? `<p>মেথড: ${escapeHTML(item.payment_method)}</p>`
                 : "";
+
             const reference = item.reference_id
                 ? `<p>রেফারেন্স: ${escapeHTML(item.reference_id)}</p>`
                 : "";
@@ -287,11 +370,22 @@ async function loadTransactionHistory() {
                 </div>
             `;
         }).join("");
+
     } catch (error) {
         console.error("Transaction history error:", error);
-        list.innerHTML = `<div class="task-card"><p class="payment-info-warning">${escapeHTML(error.message || "লেনদেনের তথ্য লোড করা যায়নি।")}</p><button type="button" id="retryHistoryBtn">আবার চেষ্টা করুন</button></div>`;
+
+        list.innerHTML = `
+            <div class="task-card">
+                <p class="payment-info-warning">${escapeHTML(error.message || "লেনদেনের তথ্য লোড করা যায়নি।")}</p>
+                <button type="button" id="retryHistoryBtn">আবার চেষ্টা করুন</button>
+            </div>
+        `;
+
         const retryButton = document.getElementById("retryHistoryBtn");
-        if (retryButton) retryButton.onclick = loadTransactionHistory;
+
+        if (retryButton) {
+            retryButton.onclick = loadTransactionHistory;
+        }
     }
 }
 
@@ -299,12 +393,18 @@ async function loadTransactionHistory() {
 const pages = document.querySelectorAll(".page");
 
 function showPage(pageId) {
-    pages.forEach(page => { page.style.display = "none"; });
+    pages.forEach(page => {
+        page.style.display = "none";
+    });
+
     const page = document.getElementById(pageId);
+
     if (page) page.style.display = "block";
 
     if (pageId === "depositPage") loadPaymentSettings();
     if (pageId === "historyPage") loadTransactionHistory();
+    if (pageId === "referPage") loadReferralDetails();
+
     window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -353,6 +453,7 @@ document.getElementById("depositForm").onsubmit = async function(event) {
         setMessage(messageElement, "Please open the app from Telegram.", true);
         return;
     }
+
     if (!isAuthenticated || !user) {
         setMessage(messageElement, "Please wait. Login verification is in progress.", true);
         return;
@@ -362,6 +463,7 @@ document.getElementById("depositForm").onsubmit = async function(event) {
     const amount = Number(document.getElementById("depositAmount").value);
     const accountNumber = document.getElementById("depositAccountNumber").value.trim();
     const transactionId = document.getElementById("depositTransactionId").value.trim();
+
     const selectedMethod = availablePaymentMethods.find(item => item.method === method);
 
     if (!selectedMethod || !String(selectedMethod.account_number || "").trim()) {
@@ -370,9 +472,13 @@ document.getElementById("depositForm").onsubmit = async function(event) {
     }
 
     if (
-        !method || !Number.isFinite(amount) || amount < 1 || amount > 1000000 ||
+        !method ||
+        !Number.isFinite(amount) ||
+        amount < 1 ||
+        amount > 1000000 ||
         Math.round(amount * 100) !== amount * 100 ||
-        accountNumber.length < 5 || transactionId.length < 4
+        accountNumber.length < 5 ||
+        transactionId.length < 4
     ) {
         setMessage(messageElement, "Please enter valid deposit details.", true);
         return;
@@ -380,6 +486,7 @@ document.getElementById("depositForm").onsubmit = async function(event) {
 
     submitButton.disabled = true;
     submitButton.textContent = "Submitting...";
+
     setMessage(messageElement, "");
 
     try {
@@ -394,6 +501,7 @@ document.getElementById("depositForm").onsubmit = async function(event) {
                 reference_id: transactionId
             })
         });
+
         const result = await response.json();
 
         if (!response.ok || !result.success) {
@@ -401,10 +509,13 @@ document.getElementById("depositForm").onsubmit = async function(event) {
         }
 
         setMessage(messageElement, "Deposit request submitted successfully! Status: Pending Approval.");
+
         this.reset();
         showPaymentInfo("");
 
-        if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+        if (tg.HapticFeedback) {
+            tg.HapticFeedback.notificationOccurred("success");
+        }
 
         alert(
             "Deposit request submitted successfully!\n\n" +
@@ -412,17 +523,23 @@ document.getElementById("depositForm").onsubmit = async function(event) {
             "\nMethod: " + (result.transaction?.payment_method || method) +
             "\nStatus: Pending Approval\n\nAdmin will review your payment."
         );
+
     } catch (error) {
         console.error("Deposit error:", error);
+
         setMessage(messageElement, error.message || "Deposit request failed.", true);
-        if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
+
+        if (tg?.HapticFeedback) {
+            tg.HapticFeedback.notificationOccurred("error");
+        }
+
     } finally {
         submitButton.disabled = false;
         submitButton.textContent = "Submit Deposit";
     }
 };
 
-// Withdrawal Form - Connected to Backend
+// Withdrawal Form
 document.getElementById("withdrawForm").onsubmit = async function(event) {
     event.preventDefault();
 
@@ -433,6 +550,7 @@ document.getElementById("withdrawForm").onsubmit = async function(event) {
         setMessage(messageElement, "Telegram থেকে অ্যাপটি খুলুন।", true);
         return;
     }
+
     if (!isAuthenticated || !user) {
         setMessage(messageElement, "Login verification চলছে। একটু অপেক্ষা করুন।", true);
         return;
@@ -446,10 +564,14 @@ document.getElementById("withdrawForm").onsubmit = async function(event) {
         setMessage(messageElement, "সঠিক Payment Method নির্বাচন করুন।", true);
         return;
     }
+
     if (
-        !Number.isFinite(amount) || amount < 1 || amount > 1000000 ||
+        !Number.isFinite(amount) ||
+        amount < 1 ||
+        amount > 1000000 ||
         Math.round(amount * 100) !== amount * 100 ||
-        account.length < 5 || account.length > 100
+        account.length < 5 ||
+        account.length > 100
     ) {
         setMessage(messageElement, "সঠিক Account Number এবং Amount দিন।", true);
         return;
@@ -457,6 +579,7 @@ document.getElementById("withdrawForm").onsubmit = async function(event) {
 
     submitButton.disabled = true;
     submitButton.textContent = "Submitting...";
+
     setMessage(messageElement, "");
 
     try {
@@ -477,7 +600,9 @@ document.getElementById("withdrawForm").onsubmit = async function(event) {
             throw new Error(result.message || "Withdrawal request failed.");
         }
 
-        if (result.wallet) updateWallet(result.wallet);
+        if (result.wallet) {
+            updateWallet(result.wallet);
+        }
 
         setMessage(
             messageElement,
@@ -485,9 +610,12 @@ document.getElementById("withdrawForm").onsubmit = async function(event) {
         );
 
         const transaction = result.transaction || {};
+
         this.reset();
 
-        if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+        if (tg?.HapticFeedback) {
+            tg.HapticFeedback.notificationOccurred("success");
+        }
 
         alert(
             "Withdrawal request submitted!\n\n" +
@@ -496,36 +624,65 @@ document.getElementById("withdrawForm").onsubmit = async function(event) {
             "\nStatus: Pending Approval\n\n" +
             "Admin review করার পর পেমেন্ট সম্পন্ন হবে।"
         );
+
     } catch (error) {
         console.error("Withdrawal error:", error);
+
         setMessage(messageElement, error.message || "Withdrawal request failed.", true);
-        if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
+
+        if (tg?.HapticFeedback) {
+            tg.HapticFeedback.notificationOccurred("error");
+        }
+
     } finally {
         submitButton.disabled = false;
         submitButton.textContent = "Submit Withdrawal";
     }
 };
 
-// Copy Referral
+// Copy Referral Link
 document.getElementById("copyReferralBtn").onclick = async () => {
-    const code = document.getElementById("referralCode").textContent;
+    if (!referralLink) {
+        await loadReferralDetails();
+    }
+
+    if (!referralLink) {
+        alert("Referral link এখনো পাওয়া যায়নি। আবার চেষ্টা করুন।");
+        return;
+    }
+
     try {
-        await navigator.clipboard.writeText(code);
-        alert("Referral code copied!");
+        await navigator.clipboard.writeText(referralLink);
+        alert("Referral link copied successfully!");
+
     } catch {
-        alert("Your referral code: " + code);
+        alert("Your referral link:\n" + referralLink);
     }
 };
 
-// Share Referral
-document.getElementById("shareReferralBtn").onclick = () => {
-    const code = document.getElementById("referralCode").textContent;
-    const message = "Join ESY EARN BD using my referral code: " + code;
+// Share Referral Link
+document.getElementById("shareReferralBtn").onclick = async () => {
+    if (!referralLink) {
+        await loadReferralDetails();
+    }
+
+    if (!referralLink) {
+        alert("Referral link এখনো পাওয়া যায়নি। আবার চেষ্টা করুন।");
+        return;
+    }
+
+    const message = "Join ESY EARN BD using my referral link!";
+
+    const shareURL =
+        "https://t.me/share/url?url=" +
+        encodeURIComponent(referralLink) +
+        "&text=" +
+        encodeURIComponent(message);
 
     if (tg) {
-        tg.openTelegramLink("https://t.me/share/url?url=" + encodeURIComponent(message));
+        tg.openTelegramLink(shareURL);
     } else {
-        alert(message);
+        window.open(shareURL, "_blank");
     }
 };
 
@@ -539,6 +696,7 @@ document.getElementById("shareReferralBtn").onclick = () => {
     "freeTaskTwoBtn"
 ].forEach(id => {
     const button = document.getElementById(id);
+
     if (button) {
         button.onclick = () => {
             alert("Task details and submission system will be connected with the backend later.");
